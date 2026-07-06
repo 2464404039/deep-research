@@ -148,8 +148,14 @@ def direct_answer_node(state: ResearchState, llm: Any, name: str) -> dict:
     """简单问答：裸 LLM 调用，跳过 Agent 层"""
     from langchain_core.messages import HumanMessage, SystemMessage
 
+    # 注入记忆上下文（让 LLM 知道之前聊过什么）
+    mc = state.get("memory_context", "").strip()
+    system_text = "你是一个友好的AI助手。简短自然地回复用户的问题，不要拉长回复。"
+    if mc:
+        system_text += f"\n\n[对话记忆]\n{mc}"
+
     human = HumanMessage(content=state["query"])
-    system = SystemMessage(content="你是一个友好的AI助手。简短自然地回复用户的问题，不要拉长回复。")
+    system = SystemMessage(content=system_text)
     try:
         result = llm.invoke([system, human])
         final = result.content
