@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepResearch Lite — 多Agent深度研究助手</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- 侧边装饰 -->
+        <div class="bg-glow bg-glow-1"></div>
+        <div class="bg-glow bg-glow-2"></div>
+
+        <!-- 主容器 -->
+        <div class="main-panel">
+            <!-- 头部 -->
+            <header class="header">
+                <div class="logo">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                        <rect width="32" height="32" rx="8" fill="url(#logoGrad)"/>
+                        <path d="M8 16L14 22L24 10" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs>
+                    </svg>
+                    <div>
+                        <h1>DeepResearch <span>Lite</span></h1>
+                        <span class="tagline">多 Agent 协作 · 深度研究报告</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- 对话区 -->
+            <div class="chat-area" id="chatArea">
+                <div class="messages" id="messages">
+                    <!-- 欢迎页 -->
+                    <div class="welcome" id="welcome">
+                        <div class="welcome-icon">
+                            <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                                <circle cx="32" cy="32" r="30" stroke="url(#welcomeGrad)" stroke-width="2" stroke-dasharray="8 4"/>
+                                <circle cx="32" cy="32" r="18" fill="url(#welcomeGrad)" opacity="0.15"/>
+                                <path d="M24 32L30 38L40 26" stroke="url(#welcomeGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                                <defs><linearGradient id="welcomeGrad" x1="0" y1="0" x2="64" y2="64"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs>
+                            </svg>
+                        </div>
+                        <h2>开始你的深度研究之旅</h2>
+                        <p class="welcome-desc">简单问题快速应答，复杂问题自动调度多个 AI Agent 协作，<br>搜索 → 分析 → 撰写，生成带引用的专业报告。</p>
+                        <div class="starter-grid" id="starterGrid">
+                            <div class="starter-card" data-query="分析2026年AI行业就业趋势与薪资水平">
+                                <span class="card-title">AI行业就业趋势</span>
+                                <span class="card-desc">2026年岗位、薪资与技能要求全景分析</span>
+                            </div>
+                            <div class="starter-card" data-query="深度对比 Python 和 Go 在后端开发中的优劣势与适用场景">
+                                <span class="card-title">Python vs Go 技术选型</span>
+                                <span class="card-desc">性能、生态、学习曲线的全方位对比</span>
+                            </div>
+                            <div class="starter-card" data-query="调研AI 智能体（Agent）新规落地的影响">
+                                <span class="card-title">AI 智能体（Agent）新规落地</span>
+                                <span class="card-desc">《互联网信息服务管理办法》新增智能信息服务专章</span>
+                            </div>
+                            <div class="starter-card" data-query="ChatGPT vs DeepSeek vs Claude 主流AI助手功能与定价全方位对比">
+                                <span class="card-title">主流AI助手横评</span>
+                                <span class="card-desc">GPT / DeepSeek / Claude 核心能力对比</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Agent 状态条 -->
+            <div class="agent-bar" id="agentBar" style="display:none">
+                <div class="agent-steps" id="agentSteps">
+                    <div class="step" data-node="intent"><span class="step-dot"></span><span class="step-label">意图分析</span></div>
+                    <div class="step" data-node="plan"><span class="step-dot"></span><span class="step-label">制定计划</span></div>
+                    <div class="step" data-node="web_scout"><span class="step-dot"></span><span class="step-label">网络搜索</span></div>
+                    <div class="step" data-node="analyst"><span class="step-dot"></span><span class="step-label">分析评估</span></div>
+                    <div class="step" data-node="writer"><span class="step-dot"></span><span class="step-label">撰写报告</span></div>
+                </div>
+            </div>
+
+            <!-- 输入区 -->
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <textarea id="input" rows="1" placeholder="输入你想研究的问题..." onkeydown="handleKeyDown(event)"></textarea>
+                    <button id="sendBtn" onclick="sendMessage()" title="发送">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M2 10L18 2L10 18L8 12L2 10Z" fill="currentColor"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
