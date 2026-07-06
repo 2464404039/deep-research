@@ -1,7 +1,7 @@
-# ── DeepInquire Dockerfile ──────────────────
+# ── DeepResearch Dockerfile ──────────────────
 FROM python:3.11-slim
 
-LABEL org.opencontainers.image.title="DeepInquire"
+LABEL org.opencontainers.image.title="DeepResearch"
 LABEL org.opencontainers.image.description="轻量级多 Agent 深度研究助手"
 
 # 系统依赖

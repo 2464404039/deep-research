@@ -1,4 +1,4 @@
-"""DeepInquire —— CLI 入口"""
+"""DeepResearch —— CLI 入口"""
 import argparse
 import logging
 import sys
@@ -84,7 +84,7 @@ def run():
         memory = MemoryStore(db_path=str(ROOT / settings.db_path))
 
     # 解析参数
-    parser = argparse.ArgumentParser(description="DeepInquire")
+    parser = argparse.ArgumentParser(description="DeepResearch")
     parser.add_argument("--query", type=str, default=None, help="单次查询")
     parser.add_argument("--user", type=str, default="default", help="用户ID")
     args = parser.parse_args()
@@ -116,7 +116,7 @@ def run():
         print(f"{'='*60}\n")
     else:
         # 交互模式
-        print("DeepInquire — 输入 /quit 退出\n")
+        print("DeepResearch — 输入 /quit 退出\n")
         import uuid
         thread_id = str(uuid.uuid4())[:8]
         while True:

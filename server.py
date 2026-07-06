@@ -1,4 +1,4 @@
-"""DeepInquire —— FastAPI Web 服务 + SSE 流式输出"""
+"""DeepResearch —— FastAPI Web 服务 + SSE 流式输出"""
 import asyncio
 import logging
 import sys
@@ -79,7 +79,7 @@ if settings.enable_memory:
 
 # ── FastAPI ──────────────────────────────────────────────
 
-app = FastAPI(title="DeepInquire")
+app = FastAPI(title="DeepResearch")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # 静态文件
@@ -95,12 +95,12 @@ async def index():
     if index_path.exists():
         from fastapi.responses import FileResponse
         return FileResponse(str(index_path))
-    return JSONResponse({"message": "DeepInquire API", "docs": "/docs"})
+    return JSONResponse({"message": "DeepResearch API", "docs": "/docs"})
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "deepinquire"}
+    return {"status": "ok", "service": "deepresearch"}
 
 
 _NODE_MESSAGES = {

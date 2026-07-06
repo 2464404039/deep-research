@@ -1,4 +1,4 @@
-# DeepInquire
+# DeepResearch
 
 轻量级多 Agent 深度研究助手 —— 自动搜索、分析、撰写带引用和可信度评分的专业研究报告。
 
@@ -44,8 +44,8 @@ reliability = relevance × 0.4 + freshness × 0.3 + authority × 0.3
 
 ```bash
 # 1. 克隆
-git clone https://github.com/your-username/deepinquire.git
-cd deepinquire
+git clone https://github.com/your-username/deepresearch.git
+cd deepresearch
 
 # 2. 安装依赖
 pip install -r requirements.txt
@@ -66,8 +66,8 @@ python server.py
 
 ```bash
 # 1. 克隆并配置
-git clone https://github.com/your-username/deepinquire.git
-cd deepinquire
+git clone https://github.com/your-username/deepresearch.git
+cd deepresearch
 cp .env.example .env
 # 编辑 .env 填入真实 API Key
 
@@ -86,7 +86,7 @@ docker compose down
 ## 项目结构
 
 ```
-deepinquire/
+deepresearch/
 ├── .env.example          # 配置模板
 ├── .gitignore
 ├── .dockerignore
