@@ -66,6 +66,10 @@ def run():
                        base_url=settings.deepseek_base_url, temperature=0.4),
             tools=[], system_prompt=PROMPTS["writer"]
         ),
+        direct_llm=ChatOpenAI(
+            model=settings.model, api_key=settings.deepseek_api_key,
+            base_url=settings.deepseek_base_url, temperature=0.3
+        ),
     )
 
     # SQLite Checkpointer

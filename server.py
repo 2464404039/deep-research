@@ -59,6 +59,7 @@ _agents = AgentBundle(
     web_scout=create_agent(_make_llm(0.4), tools=[], system_prompt=PROMPTS["web_scout"]),
     analyst=create_agent(_make_llm(0.3), tools=[], system_prompt=PROMPTS["analyst"]),
     writer=create_agent(_make_llm(0.4), tools=[], system_prompt=PROMPTS["writer"]),
+    direct_llm=_make_llm(0.3),
 )
 
 # ── Checkpointer ──────────────────────────────────────────
