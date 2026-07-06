@@ -1,4 +1,4 @@
-# DeepResearch Lite
+# DeepInquire
 
 轻量级多 Agent 深度研究助手 —— 自动搜索、分析、撰写带引用和可信度评分的专业研究报告。
 
@@ -44,8 +44,8 @@ reliability = relevance × 0.4 + freshness × 0.3 + authority × 0.3
 
 ```bash
 # 1. 克隆
-git clone https://github.com/your-username/deep-research-lite.git
-cd deep-research-lite
+git clone https://github.com/your-username/deepinquire.git
+cd deepinquire
 
 # 2. 安装依赖
 pip install -r requirements.txt
@@ -59,15 +59,15 @@ python main.py --query "对比 ChatGPT 和 DeepSeek 最新定价"
 
 # 5. Web 服务
 python server.py
-# 浏览器打开 http://localhost:8765
+# 浏览器打开 http://localhost:8764
 ```
 
 ### Docker 部署（推荐用于云服务器）
 
 ```bash
 # 1. 克隆并配置
-git clone https://github.com/your-username/deep-research-lite.git
-cd deep-research-lite
+git clone https://github.com/your-username/deepinquire.git
+cd deepinquire
 cp .env.example .env
 # 编辑 .env 填入真实 API Key
 
@@ -81,12 +81,12 @@ docker compose logs -f
 docker compose down
 ```
 
-服务默认监听 `http://<服务器IP>:8765`。
+服务默认监听 `http://<服务器IP>:8764`。
 
 ## 项目结构
 
 ```
-deep-research-lite/
+deepinquire/
 ├── .env.example          # 配置模板
 ├── .gitignore
 ├── .dockerignore
@@ -122,7 +122,7 @@ deep-research-lite/
 | `MAX_ITERATIONS` | - | 搜索-分析最大循环次数，默认 2 |
 | `ENABLE_MEMORY` | - | 是否启用跨会话记忆，默认 true |
 | `HOST` | - | 服务监听地址，默认 `0.0.0.0` |
-| `PORT` | - | 服务端口，默认 `8765` |
+| `PORT` | - | 服务端口，默认 `8764` |
 
 ## 技术栈
 

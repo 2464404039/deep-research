@@ -1,13 +1,13 @@
-# ── DeepResearch Lite Docker Compose ─────────────
+# ── DeepInquire Docker Compose ─────────────────
 version: "3.9"
 
 services:
-  deepresearch:
+  deepinquire:
     build: .
-    container_name: deepresearch-lite
+    container_name: deepinquire
     restart: unless-stopped
     ports:
-      - "8765:8765"
+      - "8764:8764"
     env_file:
       - .env
     volumes:
@@ -15,9 +15,9 @@ services:
       - ./data:/app/data
     environment:
       - HOST=0.0.0.0
-      - PORT=8765
+      - PORT=8764
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8764/health')"]
       interval: 30s
       timeout: 10s
       retries: 3

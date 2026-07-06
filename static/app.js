@@ -1,4 +1,4 @@
-/* DeepResearch Lite — Frontend Logic */
+/* DeepInquire — Frontend Logic */
 
 const msgContainer = document.getElementById('messages');
 const inputEl = document.getElementById('input');

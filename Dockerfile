@@ -1,7 +1,7 @@
-# ── DeepResearch Lite Dockerfile ──────────────────
+# ── DeepInquire Dockerfile ──────────────────
 FROM python:3.11-slim
 
-LABEL org.opencontainers.image.title="DeepResearch Lite"
+LABEL org.opencontainers.image.title="DeepInquire"
 LABEL org.opencontainers.image.description="轻量级多 Agent 深度研究助手"
 
 # 系统依赖
@@ -23,7 +23,7 @@ COPY . .
 RUN mkdir -p /app/data
 
 # 暴露端口
-EXPOSE 8765
+EXPOSE 8764
 
 # 启动命令
-CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8765"]
+CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8764"]
