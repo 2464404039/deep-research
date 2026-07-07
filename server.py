@@ -61,6 +61,7 @@ _agents = AgentBundle(
     web_scout=create_agent(_make_llm(0.4), tools=[fetch_page_tool], system_prompt=PROMPTS["web_scout"]),
     analyst=create_agent(_make_llm(0.3), tools=[search_supplement_tool], system_prompt=PROMPTS["analyst"]),
     writer=create_agent(_make_llm(0.4), tools=[], system_prompt=PROMPTS["writer"]),
+    direct_llm=_make_llm(0.3),
 )
 
 # ── Checkpointer ──────────────────────────────────────────
@@ -102,11 +103,7 @@ async def index():
 
 @app.get("/health")
 async def health():
-    return {
-        "status": "ok",
-        "service": "deepresearch",
-        "rate_limit": get_limiter().status(),
-    }
+    return {"status": "ok", "service": "deepresearch"}
 
 
 _NODE_MESSAGES = {

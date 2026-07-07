@@ -1,3 +1,6 @@
+# ── DeepResearch Docker Compose ─────────────────
+version: "3.9"
+
 services:
   deepresearch:
     build: .
@@ -9,6 +12,9 @@ services:
       - .env
     volumes:
       - ./data:/app/data
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8764
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8764/health')"]
       interval: 30s

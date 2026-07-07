@@ -8,6 +8,9 @@ const agentSteps = document.getElementById('agentSteps');
 const welcome = document.getElementById('welcome');
 let loading = false;
 
+// ── 会话级 threadId（刷新页面才重置）──────────────
+const THREAD_ID = 'web-' + Date.now();
+
 // ── Agent phases ─────────────────────────────────────
 
 const AGENT_PHASES = ['intent', 'plan', 'web_scout', 'analyst', 'writer'];
@@ -135,11 +138,10 @@ function sendMessage() {
     aiContent.appendChild(loadingEl);
 
     // SSE 连接
-    const threadId = 'web-' + Date.now();
     fetch('/api/v1/research/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, user_id: 'web-user', thread_id: threadId }),
+        body: JSON.stringify({ query, user_id: 'web-user', thread_id: THREAD_ID }),
     }).then(async resp => {
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();

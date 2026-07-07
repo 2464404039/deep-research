@@ -162,15 +162,13 @@ def intent_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
     """意图路由：分类为 direct（简单问答）或 multiagent（深度研究）"""
     keyword_route = _detect_intent(state["query"])
 
-    # 构建上下文：记忆 + 关键词预判提示
-    parts = [f"用户问题：{state['query']}"]
-    mc = state.get("memory_context", "").strip()
-    if mc:
-        parts.insert(0, f"[对话历史]\n{mc}")
+    # 关键词判断为 direct（无研究词汇）→ 直接走，LLM 无权推翻
     if keyword_route == "direct":
-        parts.append("（关键词预判：追问或建议类问题，建议路由 direct）")
+        logger.info("[intent] 关键词=direct，跳过 LLM 路由")
+        return {"intent": "direct", "messages": []}
 
-    human = HumanMessage(content="\n\n".join(parts))
+    # 关键词判断为 multiagent → 让 LLM 确认（避免误伤带研究意图的无关键词 query）
+    human = HumanMessage(content=f"判断以下问题的路由：{state['query']}")
     try:
         result = agent.invoke({"messages": [human]})
         last_msg = result["messages"][-1]
@@ -185,12 +183,21 @@ def intent_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
     return {"intent": route, "messages": [human]}
 
 
-def direct_answer_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
-    """简单问答：直接回复用户"""
+def direct_answer_node(state: ResearchState, llm: Any, name: str) -> dict:
+    """简单问答：裸 LLM 调用，跳过 Agent 层"""
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    # 注入记忆上下文（让 LLM 知道之前聊过什么）
+    mc = state.get("memory_context", "").strip()
+    system_text = "你是一个友好的AI助手。简短自然地回复用户的问题，不要拉长回复。"
+    if mc:
+        system_text += f"\n\n[对话记忆]\n{mc}"
+
     human = HumanMessage(content=state["query"])
+    system = SystemMessage(content=system_text)
     try:
-        result = agent.invoke({"messages": [human]})
-        final = result["messages"][-1].content
+        result = llm.invoke([system, human])
+        final = result.content
     except Exception as exc:
         final = f"抱歉，处理请求时出错：{exc}"
 

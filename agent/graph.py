@@ -22,6 +22,7 @@ class AgentBundle:
     web_scout: any
     analyst: any
     writer: any
+    direct_llm: any = None  # 裸 LLM，用于简单问答（跳过 Agent 层）
 
 
 def _bind(node_fn, agent, name):
@@ -56,7 +57,7 @@ def build_graph(agents: AgentBundle, checkpointer=None):
 
     # 添加节点
     workflow.add_node("intent", _bind(intent_node, agents.intent_router, "intent_router"))
-    workflow.add_node("direct_answer", _bind(direct_answer_node, agents.writer, "writer"))
+    workflow.add_node("direct_answer", _bind(direct_answer_node, agents.direct_llm or agents.writer, "direct_llm"))
     workflow.add_node("plan", _bind(plan_node, agents.planner, "planner"))
     workflow.add_node("web_scout", _bind(web_scout_node, agents.web_scout, "web_scout"))
     workflow.add_node("analyst", _bind(analyst_node, agents.analyst, "analyst"))
