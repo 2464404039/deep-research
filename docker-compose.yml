@@ -1,23 +1,16 @@
-# ── DeepResearch Lite Docker Compose ─────────────
-version: "3.9"
-
 services:
   deepresearch:
     build: .
-    container_name: deepresearch-lite
+    container_name: deepresearch
     restart: unless-stopped
     ports:
-      - "8765:8765"
+      - "8764:8764"
     env_file:
       - .env
     volumes:
-      # 持久化 SQLite 记忆数据库
       - ./data:/app/data
-    environment:
-      - HOST=0.0.0.0
-      - PORT=8765
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8764/health')"]
       interval: 30s
       timeout: 10s
       retries: 3

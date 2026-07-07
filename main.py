@@ -1,4 +1,4 @@
-"""DeepResearch Lite —— CLI 入口"""
+"""DeepResearch —— CLI 入口"""
 import argparse
 import logging
 import sys
@@ -23,6 +23,7 @@ from agent.config import Settings
 from agent.graph import AgentBundle, build_graph
 from agent.prompts import PROMPTS
 from agent.state import create_initial_state
+from agent.tools import fetch_page_tool, search_supplement_tool
 from memory.store import MemoryStore
 
 logging.basicConfig(
@@ -54,12 +55,12 @@ def run():
         web_scout=create_agent(
             ChatOpenAI(model=settings.model, api_key=settings.deepseek_api_key,
                        base_url=settings.deepseek_base_url, temperature=0.4),
-            tools=[], system_prompt=PROMPTS["web_scout"]
+            tools=[fetch_page_tool], system_prompt=PROMPTS["web_scout"]
         ),
         analyst=create_agent(
             ChatOpenAI(model=settings.model, api_key=settings.deepseek_api_key,
                        base_url=settings.deepseek_base_url, temperature=0.3),
-            tools=[], system_prompt=PROMPTS["analyst"]
+            tools=[search_supplement_tool], system_prompt=PROMPTS["analyst"]
         ),
         writer=create_agent(
             ChatOpenAI(model=settings.model, api_key=settings.deepseek_api_key,
@@ -84,7 +85,7 @@ def run():
         memory = MemoryStore(db_path=str(ROOT / settings.db_path))
 
     # 解析参数
-    parser = argparse.ArgumentParser(description="DeepResearch Lite")
+    parser = argparse.ArgumentParser(description="DeepResearch")
     parser.add_argument("--query", type=str, default=None, help="单次查询")
     parser.add_argument("--user", type=str, default="default", help="用户ID")
     args = parser.parse_args()
@@ -116,7 +117,7 @@ def run():
         print(f"{'='*60}\n")
     else:
         # 交互模式
-        print("DeepResearch Lite — 输入 /quit 退出\n")
+        print("DeepResearch — 输入 /quit 退出\n")
         import uuid
         thread_id = str(uuid.uuid4())[:8]
         while True:

@@ -190,6 +190,29 @@ body {
 .wf-icon { flex-shrink: 0; font-size: 14px; }
 .wf-msg { color: var(--text); font-weight: 500; }
 .wf-detail { color: var(--text3); font-size: 12px; margin-left: auto; text-align: right; max-width: 50%; }
+/* Spinner for "start" state */
+.wf-spin {
+    width: 12px; height: 12px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: wfSpin 0.8s linear infinite;
+    margin-left: 4px;
+    flex-shrink: 0;
+}
+@keyframes wfSpin { to { transform: rotate(360deg); } }
+/* Done state fades in detail */
+.wf-start .wf-msg { color: var(--text2); }
+.wf-done .wf-msg { color: var(--text); }
+.wf-done .wf-icon { opacity: 1; }
+/* Loop/re-search indicator */
+.wf-entry[data-node="reloop"] {
+    background: #fef3c7;
+    border-left: 3px solid #f59e0b;
+    padding-left: 10px;
+    border-radius: 0 4px 4px 0;
+}
+.wf-entry[data-node="reloop"] .wf-msg { color: #92400e; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
 /* ── Markdown in messages ────────────────────────── */
@@ -220,6 +243,19 @@ body {
 .msg-content pre code { background: none; padding: 0; color: inherit; border: none; }
 .msg-content a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; font-weight: 500; }
 .msg-content a:hover { color: var(--accent2); }
+/* Quality warning banner */
+.quality-warn {
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    border-left: 4px solid #f59e0b;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    color: #92400e;
+    line-height: 1.5;
+}
+
 .msg-content blockquote {
     border-left: 3px solid var(--accent);
     padding-left: 14px;
@@ -302,59 +338,6 @@ body {
 .ql-high { background: rgba(16,185,129,0.12); color: #059669; }
 .ql-med  { background: rgba(245,158,11,0.12); color: #d97706; }
 .ql-low  { background: rgba(239,68,68,0.12); color: #dc2626; }
-
-/* ── Agent Status Bar ────────────────────────────── */
-.agent-bar {
-    padding: 12px 28px;
-    background: var(--surface2);
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-    overflow-x: auto;
-}
-.agent-steps {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    min-width: max-content;
-}
-.step {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--text3);
-    padding: 6px 14px;
-    border-radius: 20px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    transition: all 0.35s;
-    white-space: nowrap;
-}
-.step .step-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--text3);
-    flex-shrink: 0;
-    transition: all 0.3s;
-}
-.step.active {
-    color: var(--accent);
-    border-color: var(--accent);
-    background: var(--accent-light);
-    font-weight: 600;
-}
-.step.active .step-dot {
-    background: var(--accent);
-    box-shadow: 0 0 8px var(--accent-glow);
-    animation: pulse 1s infinite;
-}
-.step.done {
-    color: var(--green);
-    border-color: rgba(16, 185, 129, 0.3);
-    background: var(--green-bg);
-}
-.step.done .step-dot { background: var(--green); }
 
 /* ── Input Area ──────────────────────────────────── */
 .input-area {
@@ -442,5 +425,4 @@ body {
     .message { padding: 16px 18px; }
     .header { padding: 12px 18px; }
     .input-area { padding: 10px 14px 14px; }
-    .agent-bar { padding: 10px 14px; }
 }

@@ -16,37 +16,49 @@ def bocha_web_search(query: str, count: int = 5) -> list[dict]:
     if not api_key:
         return []
 
-    # freshness: 使用 "Year" 限制为近一年结果（而非 noLimit 放任旧内容）
-    payload = {"query": query, "summary": True, "freshness": "Year", "count": count}
-    try:
-        request = urllib.request.Request(
-            url="https://api.bocha.cn/v1/web-search",
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            method="POST",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(request, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except Exception as exc:
-        logger.warning("博查搜索失败: %s", exc)
-        return []
+    def _do_search(freshness: str) -> list[dict]:
+        payload = {"query": query, "summary": True, "freshness": freshness, "count": count}
+        try:
+            request = urllib.request.Request(
+                url="https://api.bocha.cn/v1/web-search",
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                method="POST",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(request, timeout=15) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except Exception as exc:
+            logger.warning("博查搜索失败: %s", exc)
+            return []
 
-    records = []
-    for item in data.get("data", {}).get("webPages", {}).get("value", []):
-        # 提取发布时间元数据（Bocha API 可能返回 dateLastCrawled / datePublished）
-        pub_date = (
-            item.get("datePublished")
-            or item.get("dateLastCrawled")
-            or item.get("date", "")
-        )
-        records.append({
-            "title": item.get("name", ""),
-            "url": item.get("url", ""),
-            "snippet": item.get("summary", "") or item.get("snippet", ""),
-            "domain": item.get("displayUrl", "") or item.get("siteName", ""),
-            "date": pub_date,
-            "source": "bocha",
-        })
+        records = []
+        for item in data.get("data", {}).get("webPages", {}).get("value", []):
+            pub_date = (
+                item.get("datePublished")
+                or item.get("dateLastCrawled")
+                or item.get("date", "")
+            )
+            records.append({
+                "title": item.get("name", ""),
+                "url": item.get("url", ""),
+                "snippet": item.get("summary", "") or item.get("snippet", ""),
+                "domain": item.get("displayUrl", "") or item.get("siteName", ""),
+                "date": pub_date,
+                "source": "bocha",
+            })
+        return records
+
+    # 先用 Month 搜最新结果
+    records = _do_search("Month")
+    # 如果近一月结果太少，fallback 到 Year 补充
+    if len(records) < 3:
+        logger.info("博查 Month 仅 %d 条结果，fallback 到 Year 补充", len(records))
+        year_records = _do_search("Year")
+        seen_urls = {r["url"] for r in records}
+        for r in year_records:
+            if r["url"] not in seen_urls:
+                records.append(r)
+
     return records
 
 
@@ -56,8 +68,8 @@ def ddg_search(query: str, max_results: int = 5) -> list[dict]:
     try:
         from duckduckgo_search import DDGS
         with DDGS() as ddgs:
-            # timelimit='y' 限制为近一年结果
-            results = list(ddgs.text(query, max_results=max_results, timelimit='y'))
+            # timelimit='m' 限制为近一月结果，确保搜到最新信息
+            results = list(ddgs.text(query, max_results=max_results, timelimit='m'))
     except Exception as exc:
         logger.warning("DDG搜索失败: %s", exc)
         return []
@@ -290,3 +302,46 @@ def enrich_records_with_content(records: list[dict], max_fetch: int = 10) -> lis
                 rec["snippet"] = content[:500]
         time.sleep(0.5)
     return records
+
+
+# ── LangChain 工具（供 Agent tool-calling 使用）────────────
+
+from langchain_core.tools import tool as lc_tool
+
+
+@lc_tool
+def fetch_page_tool(url: str) -> str:
+    """获取指定网页的完整正文内容。当你看到搜索摘要但需要更多细节（具体数据、价格、日期）时使用此工具。
+    优先选择官网(.com/.org 主域名)、权威媒体、以及摘要中提到了具体数字的页面。每次只抓取一个 URL。
+
+    Args:
+        url: 要抓取的网页 URL（必须是搜索结果中出现的完整 URL）
+    """
+    content = fetch_page_content(url)
+    if not content:
+        return f"⚠️ 无法抓取 {url}，页面可能已被删除、屏蔽或无法访问。请尝试其他 URL。"
+    return f"【页面抓取成功】{url}\n\n{content}"
+
+
+@lc_tool
+def search_supplement_tool(query: str) -> str:
+    """当你分析证据后发现某个具体维度缺少关键数据时，用此工具做定向补充搜索。
+    每次只搜一个具体问题，搜索词应包含关键实体 + 时间限定（如"2026"或"2026年7月"）+ 所需数据维度。
+
+    注意：此工具只返回搜索摘要（标题/URL/摘要/日期），不会抓取完整页面内容。从摘要中提取关键数据即可。
+
+    Args:
+        query: 具体的补充搜索词，如"DeepSeek V3 API 输出价格 2026年7月"
+    """
+    results = search_all([query], count_per=3)
+    if not results:
+        return f"未找到与 '{query}' 相关的搜索结果。"
+    lines = [f"## 补充搜索结果：「{query}」\n"]
+    for r in results:
+        date_str = f"  |  日期: {r['date']}" if r.get('date') else ""
+        lines.append(
+            f"- **{r['title']}**{date_str}\n"
+            f"  URL: {r['url']}\n"
+            f"  摘要: {r['snippet'][:250]}\n"
+        )
+    return "\n".join(lines)

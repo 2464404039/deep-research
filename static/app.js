@@ -1,4 +1,4 @@
-/* DeepResearch Lite — Frontend Logic */
+/* DeepResearch — Frontend Logic */
 
 const msgContainer = document.getElementById('messages');
 const inputEl = document.getElementById('input');
@@ -15,16 +15,17 @@ const completedPhases = new Set();
 
 function resetAgentBar() {
     completedPhases.clear();
+    if (!agentBar) return;
     agentBar.style.display = 'none';
-    agentSteps.querySelectorAll('.step').forEach(s => { s.classList.remove('active', 'done'); });
+    if (agentSteps) {
+        agentSteps.querySelectorAll('.step').forEach(s => { s.classList.remove('active', 'done'); });
+    }
 }
 
-function setPhaseActive(node) {
+function setPhaseStatus(node, status) {
+    if (!agentBar || !agentSteps) return;  // agent bar removed, no-op
     agentBar.style.display = 'block';
-    const idx = AGENT_PHASES.indexOf(node);
     const steps = agentSteps.querySelectorAll('.step');
-
-    for (let i = 0; i < idx; i++) completedPhases.add(AGENT_PHASES[i]);
 
     if (node === 'direct_answer') {
         completedPhases.add('intent');
@@ -32,28 +33,48 @@ function setPhaseActive(node) {
         return;
     }
 
-    steps.forEach(step => {
-        const n = step.dataset.node;
-        step.classList.remove('active', 'done');
-        if (completedPhases.has(n)) step.classList.add('done');
-        if (n === node) step.classList.add('active');
-    });
+    const idx = AGENT_PHASES.indexOf(node);
+    if (idx < 0) return;
+
+    if (status === 'start') {
+        for (let i = 0; i < idx; i++) completedPhases.add(AGENT_PHASES[i]);
+        steps.forEach(step => {
+            const n = step.dataset.node;
+            step.classList.remove('active', 'done');
+            if (completedPhases.has(n)) step.classList.add('done');
+            if (n === node) step.classList.add('active');
+        });
+    } else {
+        completedPhases.add(node);
+        steps.forEach(step => {
+            const n = step.dataset.node;
+            step.classList.remove('active');
+            if (completedPhases.has(n)) step.classList.add('done');
+        });
+    }
 }
 
 // ── Workflow log entries ─────────────────────────────
 
 function addWorkflowEntry(container, evt) {
     const entry = document.createElement('div');
-    entry.className = 'wf-entry';
+    const status = evt.status || 'done';
+    entry.className = 'wf-entry wf-' + status;
     const icon = evt.icon || '';
     const msg = evt.message || '';
     const detail = evt.detail || '';
 
-    entry.innerHTML = `<span class="wf-icon">${icon}</span> ` +
-                      `<span class="wf-msg">${escapeHtml(msg)}</span>` +
-                      (detail ? `<span class="wf-detail">${escapeHtml(detail)}</span>` : '');
+    if (status === 'start') {
+        entry.innerHTML = `<span class="wf-icon">${icon}</span> ` +
+                          `<span class="wf-msg">${escapeHtml(msg)}</span>` +
+                          `<span class="wf-spin"></span>`;
+    } else {
+        entry.innerHTML = `<span class="wf-icon">${icon}</span> ` +
+                          `<span class="wf-msg">${escapeHtml(msg)}</span>` +
+                          (detail ? `<span class="wf-detail">${escapeHtml(detail)}</span>` : '');
+    }
 
-    // 如果已有同节点条目，替换之（去重）
+    // 如果已有同节点条目，替换之
     const existing = container.querySelector(`[data-node="${evt.node}"]`);
     if (existing) existing.replaceWith(entry);
     entry.dataset.node = evt.node;
@@ -139,25 +160,53 @@ function sendMessage() {
                 try {
                     const evt = JSON.parse(line.slice(6));
                     if (evt.type === 'phase') {
-                        setPhaseActive(evt.node);
+                        setPhaseStatus(evt.node, evt.status || 'done');
                         addWorkflowEntry(workflowLog, evt);
+                    } else if (evt.type === 'reloop') {
+                        // 分析师触发补充搜索循环
+                        addWorkflowEntry(workflowLog, evt);
+                        // 重置 web_scout 和 analyst 状态，准备新一轮
+                        completedPhases.delete('web_scout');
+                        completedPhases.delete('analyst');
+                        if (agentSteps) {
+                            agentSteps.querySelectorAll('.step').forEach(s => {
+                                if (s.dataset.node === 'web_scout' || s.dataset.node === 'analyst') {
+                                    s.classList.remove('done');
+                                }
+                            });
+                        }
                     } else if (evt.type === 'final') {
                         finalContent = evt.final || '';
                         sourceIndex = evt.source_index || [];
                         evidence = evt.evidence || [];
                         const evidenceScores = evt.evidence_scores || [];
+                        const quality = evt.quality || 'medium';
+                        const qualityDetail = evt.quality_detail || '';
 
                         // 移除 loading
                         loadingEl.remove();
+
+                        // 低质量警告条
+                        if (quality === 'low') {
+                            const warn = document.createElement('div');
+                            warn.className = 'quality-warn';
+                            warn.innerHTML = '⚠️ 本次研究未找到足够的高可信度来源（' + escapeHtml(qualityDetail) + '），以下结论仅供参考，建议核实关键数据。';
+                            aiContent.appendChild(warn);
+                        }
+
                         // 渲染报告
-                        aiContent.innerHTML = renderMarkdown(finalContent);
+                        const reportDiv = document.createElement('div');
+                        reportDiv.innerHTML = renderMarkdown(finalContent);
+                        aiContent.appendChild(reportDiv);
 
                         // 标记全部完成
                         AGENT_PHASES.forEach(p => completedPhases.add(p));
-                        agentSteps.querySelectorAll('.step').forEach(s => {
-                            s.classList.remove('active');
-                            s.classList.add('done');
-                        });
+                        if (agentSteps) {
+                            agentSteps.querySelectorAll('.step').forEach(s => {
+                                s.classList.remove('active');
+                                s.classList.add('done');
+                            });
+                        }
 
                         // 追加参考链接块（带评分）
                         if (sourceIndex && sourceIndex.length > 0) {
@@ -167,11 +216,12 @@ function sendMessage() {
                         // 工作流完成标记
                         const highCount = evidenceScores.filter(s => s.reliability >= 0.7).length;
                         const totalEvidence = evidenceScores.length || sourceIndex.length;
+                        const qualityLabel = { high: '🟢', medium: '🟡', low: '🔴' }[quality] || '';
                         addWorkflowEntry(workflowLog, {
                             node: 'done',
-                            icon: '✅',
-                            message: '研究完成',
-                            detail: `报告 ${finalContent.length} 字 · ${totalEvidence} 条证据 · ${highCount} 条高信度`
+                            icon: quality === 'low' ? '⚠️' : '✅',
+                            message: quality === 'low' ? '研究完成（证据不足）' : '研究完成',
+                            detail: `${qualityLabel} ${qualityDetail} · ${finalContent.length} 字`
                         });
                     } else if (evt.type === 'error') {
                         loadingEl.remove();
@@ -351,10 +401,13 @@ function renderMarkdown(text) {
     // Blockquote
     html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
 
-    // Lists
-    html = html.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
-    html = html.replace(/^\d+\. (.+)$/gm, '<li>$2</li>');
-    html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+    // Lists — use markers to distinguish ul from ol (fix $2 bug for numbered lists)
+    html = html.replace(/^[\-\*] (.+)$/gm, '<!--ul--><li>$1</li>');
+    html = html.replace(/^\d+\. (.+)$/gm, '<!--ol--><li>$1</li>');
+    html = html.replace(/((?:<!--ul--><li>.*?<\/li>\s*)+)/g, '<ul>$1</ul>');
+    html = html.replace(/((?:<!--ol--><li>.*?<\/li>\s*)+)/g, '<ol>$1</ol>');
+    html = html.replace(/<!--ul-->/g, '');
+    html = html.replace(/<!--ol-->/g, '');
 
     // Paragraphs
     const lines = html.split('\n');
@@ -374,6 +427,35 @@ function renderMarkdown(text) {
     }
     if (para.length) { result.push('<p>' + para.join('<br>') + '</p>'); }
     return result.join('\n');
+}
+
+// ── Citation linker ────────────────────────────────────
+
+function linkCitations(html, sourceIndex) {
+    if (!sourceIndex || !sourceIndex.length) return html;
+
+    // Build map: citation number → {url, title}
+    const numToSource = {};
+    sourceIndex.forEach(s => {
+        const sid = s.source_id || '';
+        const m = sid.match(/(\d+)$/);
+        if (m) {
+            numToSource[m[1]] = { url: s.url || '', title: (s.label || s.source_id || '').replace(/^\[.*?\]\s*/, '') };
+        }
+    });
+
+    // Replace <sup>[N]</sup> or <sup>[N,M,...]</sup> with clickable links
+    return html.replace(/<sup>\[([^\]]+)\]<\/sup>/g, function (match, nums) {
+        const parts = nums.split(',').map(function (n) { return n.trim(); });
+        const linked = parts.map(function (n) {
+            const src = numToSource[n];
+            if (src && src.url) {
+                return '<a href="' + escapeAttr(src.url) + '" target="_blank" rel="noopener" class="cite-link" title="' + escapeAttr(src.title) + '">[' + n + ']</a>';
+            }
+            return '[' + n + ']';
+        }).join(',');
+        return '<sup>' + linked + '</sup>';
+    });
 }
 
 // ── Auto-resize textarea ─────────────────────────────

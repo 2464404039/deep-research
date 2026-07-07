@@ -13,6 +13,7 @@ class ResearchState(TypedDict):
     intent: str                        # "direct" | "multiagent"
     plan: str                          # 研究计划文本
     search_queries: List[str]          # 搜索词列表
+    refined_queries: List[str]         # analyst 生成的细化搜索词（用于补充搜索迭代）
     search_results: str                # 原始搜索结果文本
     evidence: List[dict]               # [{source_id, title, url, snippet, domain}]
     source_index: List[dict]           # [{source_id, label, url, source_type}]
@@ -40,6 +41,7 @@ def create_initial_state(
         intent="",
         plan="",
         search_queries=[],
+        refined_queries=[],
         search_results="",
         evidence=[],
         source_index=[],

@@ -50,15 +50,29 @@ def _load_json(text: str | None, fallback: dict | None = None) -> dict:
 # ── 意图检测 ────────────────────────────────────────────────────
 
 _RESEARCH_KEYWORDS = [
-    "调研", "分析", "对比", "报告", "方案", "趋势", "预测",
+    "调研", "分析", "对比", "方案", "趋势", "预测",
     "深度", "多角度", "全面", "评估", "研究", "展望",
-    "优缺点", "利弊", "区别", "哪个好", "推荐", "建议",
+    "优缺点", "利弊", "区别", "哪个好",
     "行业", "市场", "前景", "发展", "策略", "规划",
+]
+
+_FOLLOWUP_PATTERNS = [
+    "根据这个", "根据上面", "根据刚才", "基于这个", "基于上面", "基于刚才",
+    "刚才那个", "上面那个", "那个报告", "这个报告", "之前的",
+    "那你觉得", "你觉得", "你认为", "你怎么看",
+    "给我建议", "有什么建议", "推荐一下",
+    "总结一下", "概括一下", "帮我整理",
+    "根据报告",
 ]
 
 
 def _detect_intent(query: str) -> str:
-    """基于关键词的意图预判"""
+    """基于关键词的意图预判。如果命中追问模式，直接返回 direct"""
+    # 追问/建议/总结类 → 不需要重新搜索
+    for pat in _FOLLOWUP_PATTERNS:
+        if pat in query:
+            return "direct"
+    # 研究类关键词 → 可能需要深度搜索
     for kw in _RESEARCH_KEYWORDS:
         if kw in query:
             return "multiagent"
@@ -116,13 +130,47 @@ def _build_source_index(evidence: list[dict]) -> list[dict]:
     return index
 
 
+def _extract_supplement_sources(messages: list) -> list[dict]:
+    """从 agent 消息历史中提取 search_supplement 工具返回的搜索结果，
+    解析为 source_index 条目（source_id 格式: SUPP-1, SUPP-2, ...）"""
+    import json as _json
+    entries = []
+    supp_idx = 0
+    for msg in messages:
+        if hasattr(msg, "type") and msg.type == "tool":
+            content = str(getattr(msg, "content", ""))
+            if not content or "补充搜索结果" not in content:
+                continue
+            url_matches = re.findall(r'URL:\s*(https?://[^\s\n]+)', content)
+            title_matches = re.findall(r'\*\*(.+?)\*\*', content)
+            for i, url in enumerate(url_matches):
+                supp_idx += 1
+                title = title_matches[i] if i < len(title_matches) else url.split("/")[2]
+                entries.append({
+                    "source_id": f"SUPP-{supp_idx}",
+                    "label": f"[SUPP-{supp_idx}] {title[:50]}",
+                    "url": url,
+                    "source_type": "web",
+                })
+    return entries
+
+
 # ── 节点函数 ────────────────────────────────────────────────────
 
 
 def intent_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
     """意图路由：分类为 direct（简单问答）或 multiagent（深度研究）"""
     keyword_route = _detect_intent(state["query"])
-    human = HumanMessage(content=f"判断以下问题的路由：{state['query']}")
+
+    # 构建上下文：记忆 + 关键词预判提示
+    parts = [f"用户问题：{state['query']}"]
+    mc = state.get("memory_context", "").strip()
+    if mc:
+        parts.insert(0, f"[对话历史]\n{mc}")
+    if keyword_route == "direct":
+        parts.append("（关键词预判：追问或建议类问题，建议路由 direct）")
+
+    human = HumanMessage(content="\n\n".join(parts))
     try:
         result = agent.invoke({"messages": [human]})
         last_msg = result["messages"][-1]
@@ -133,7 +181,7 @@ def intent_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
     except Exception:
         route = keyword_route
 
-    logger.info("[intent] 路由=%s", route)
+    logger.info("[intent] 路由=%s (关键词预判=%s)", route, keyword_route)
     return {"intent": route, "messages": [human]}
 
 
@@ -181,15 +229,18 @@ def plan_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
 
 
 def web_scout_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
-    """网络搜索：批量搜索 → 去重 → LLM 提取结构化证据"""
-    from .tools import search_all
+    """网络搜索：批量搜索 → 去重 → 摘要给 LLM → LLM 用 fetch_page 工具自主抓取 → 提取证据"""
+    from .tools import search_all, filter_defunct, enrich_records_with_content
 
-    queries = state["search_queries"]
+    # 优先使用 analyst 生成的细化搜索词（针对性补搜），否则用规划器的原始搜索词
+    refined = state.get("refined_queries", [])
+    if refined:
+        queries = refined
+        logger.info("[web_scout] 使用 analyst 细化搜索词(%d): %s", len(queries), " | ".join(queries))
+    else:
+        queries = state["search_queries"]
     next_iteration = state["iteration"] + 1
     raw_records = search_all(queries)
-
-    # 软过滤：仅移除明确失效/404的内容，时效性交由分析师Agent判断
-    from .tools import filter_defunct, enrich_records_with_content
     today = datetime.now().strftime("%Y年%m月%d日")
     raw_records = filter_defunct(raw_records)
 
@@ -208,30 +259,27 @@ def web_scout_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
     for rec in raw_records:
         s = rec.get("source", "unknown")
         sources[s] = sources.get(s, 0) + 1
-    logger.info("[web_scout] 搜索源分布: %s", dict(sources))
+    logger.info("[web_scout] 搜索源分布: %s，共 %d 条", dict(sources), len(raw_records))
 
-    # 抓取前10条结果的完整页面内容
-    raw_records = enrich_records_with_content(raw_records, max_fetch=10)
-
-    # 构建输入文本给 LLM（包含完整页面内容和发布日期）
-    lines = ["以下是搜索到的网页记录："]
+    # ── 构建摘要 prompt（不含全文，让 LLM 用 fetch_page 工具自主选择）──
+    lines = ["以下是搜索到的网页记录（仅摘要）。你可以使用 fetch_page 工具获取任意 URL 的完整正文："]
     for rec in raw_records:
-        full = rec.get("full_content", "")
         pub_date = rec.get("date", "")
         date_info = f"发布日期: {pub_date}" if pub_date else "发布日期: 未知"
-        content_block = f"完整内容: {full[:2000]}" if full else f"摘要: {rec['snippet'][:300]}"
         lines.append(
             f"source_id: {rec['source_id']}\n"
             f"title: {rec['title']}\n"
             f"url: {rec['url']}\n"
+            f"domain: {rec.get('domain', '')}\n"
             f"{date_info}\n"
-            f"{content_block}\n"
+            f"摘要: {rec['snippet'][:400]}\n"
             f"---"
         )
     raw_text = "\n".join(lines)
 
     human = HumanMessage(
-        content=f"当前日期：{today}\n\n用户问题：{state['query']}\n\n{raw_text}\n\n请从以上网页记录中提取与研究问题相关的证据。"
+        content=f"当前日期：{today}\n\n用户问题：{state['query']}\n\n{raw_text}\n\n"
+                f"请先根据摘要判断哪些页面最相关，然后用 fetch_page 工具只抓取 3-5 篇最关键的页面全文来提炼证据。"
     )
 
     try:
@@ -243,17 +291,51 @@ def web_scout_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
         evidence = []
         source_index = []
 
-    # 如果 LLM 没提取出证据，直接用原始记录做 fallback
-    if not evidence:
+    # ── Fallback: 检查 LLM 是否调用了 fetch_page ──
+    tool_messages = [
+        m for m in result.get("messages", [])
+        if hasattr(m, "tool_calls") and m.tool_calls
+    ]
+    fetch_calls = [
+        tc for msg in tool_messages
+        for tc in (msg.tool_calls if isinstance(msg.tool_calls, list) else [])
+        if tc.get("name") == "fetch_page_tool"
+    ]
+    logger.info("[web_scout] LLM fetch_page 调用: %d 次", len(fetch_calls))
+
+    # Fallback 1: LLM 一次都没调 fetch_page → Python 盲抓前 5 条
+    if not fetch_calls and not evidence:
+        logger.info("[web_scout] LLM 未调用 fetch_page，fallback 抓取前5条")
+        raw_records = enrich_records_with_content(raw_records, max_fetch=5)
         for rec in raw_records[:8]:
+            content = rec.get("full_content", "") or rec.get("snippet", "")
             evidence.append({
                 "source_id": rec["source_id"],
                 "title": rec["title"],
                 "url": rec["url"],
-                "snippet": rec["snippet"][:300],
+                "snippet": content[:400],
                 "domain": rec.get("domain", ""),
                 "date": rec.get("date", ""),
             })
+
+    # Fallback 2: LLM 调了 fetch_page 但没产出 evidence → 从 tool results 拼
+    if fetch_calls and not evidence:
+        logger.info("[web_scout] LLM fetch_page 成功但未产出JSON，从 tool results fallback")
+        for msg in result.get("messages", []):
+            if hasattr(msg, "type") and msg.type == "tool" and hasattr(msg, "content"):
+                content = str(msg.content)
+                if content and len(content) > 50:
+                    # 尝试从 tool result 中提取 URL
+                    url_match = re.search(r'https?://[^\s\n]{10,}', content[:200])
+                    fallback_url = url_match.group(0) if url_match else ""
+                    evidence.append({
+                        "source_id": f"WEB-FB-{len(evidence) + 1}",
+                        "title": fallback_url.split("/")[2] if fallback_url else "抓取页面",
+                        "url": fallback_url,
+                        "snippet": content[:500],
+                        "domain": fallback_url.split("/")[2] if fallback_url else "",
+                        "date": today,
+                    })
 
     if not source_index:
         source_index = _build_source_index(evidence)
@@ -269,7 +351,7 @@ def web_scout_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
 
 
 def analyst_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
-    """分析：评估证据质量 → 形成结论 → 判断是否需要补充搜索"""
+    """分析：评估证据质量 → 形成结论 → 判断是否需要补充搜索（可用 search_supplement 工具）"""
     evidence_text = json.dumps(state["evidence"], ensure_ascii=False, indent=2)
     source_text = json.dumps(state["source_index"], ensure_ascii=False, indent=2)
 
@@ -283,7 +365,8 @@ def analyst_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
             f"当前迭代：第{state['iteration'] + 1}轮（共{state['max_iterations']}轮）\n\n"
             f"证据列表：\n{evidence_text}\n\n"
             f"来源索引：\n{source_text}\n\n"
-            f"请分析证据，形成结论。如果当前是最后一轮迭代，即使证据不足也要设置 needs_more_research: false。",
+            f"请分析证据，形成结论。如果发现某个维度缺少具体数据，先用 search_supplement 工具定向补搜。"
+            f"如果当前是最后一轮迭代，即使补搜后证据不足也要设置 needs_more_research: false。",
         )
     )
 
@@ -294,18 +377,41 @@ def analyst_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
         needs_more = bool(payload.get("needs_more_research", False))
         findings = list(payload.get("findings", []))
         evidence_scores = list(payload.get("evidence_scores", []))
+        refined_queries = list(payload.get("suggested_queries", []))
     except Exception:
         analysis = "分析过程中出现错误，请参考以下证据。"
         needs_more = False
         findings = []
         evidence_scores = []
+        refined_queries = []
+        result = None
+
+    # ── 提取 search_supplement 工具返回的补充来源 ──
+    supp_sources = []
+    if result is not None:
+        agent_messages = result.get("messages", [])
+        supp_sources = _extract_supplement_sources(agent_messages)
+        # 统计 tool_calls 中 search_supplement 的调用次数
+        supp_calls = sum(
+            1 for msg in agent_messages
+            if hasattr(msg, "tool_calls") and isinstance(msg.tool_calls, list)
+            for tc in msg.tool_calls if tc.get("name") == "search_supplement_tool"
+        )
+        if supp_calls:
+            logger.info("[analyst] search_supplement 调用: %d 次, 新增来源: %d 个",
+                        supp_calls, len(supp_sources))
+
+    # 合并补充来源到 source_index
+    merged_source_index = list(state["source_index"])
+    if supp_sources:
+        merged_source_index.extend(supp_sources)
 
     # 达到最大迭代次数时强制停止
     if state["iteration"] >= state["max_iterations"]:
         needs_more = False
 
     if not analysis:
-        analysis = f"共收集到 {len(state['evidence'])} 条证据，涵盖 {len(state['source_index'])} 个来源。"
+        analysis = f"共收集到 {len(state['evidence'])} 条证据，涵盖 {len(merged_source_index)} 个来源。"
 
     # 统计评分
     if evidence_scores:
@@ -331,16 +437,21 @@ def analyst_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
         if dropped:
             logger.info("[analyst] 硬过滤丢弃 %d 条低信度证据 (reliability<0.4)", dropped)
 
-        # 过滤 evidence_scores
-        filtered_scores = [s for s in evidence_scores if s.get("reliability", 0) >= 0.4]
+        # 过滤 evidence_scores：仅保留有对应证据的评分（排除 SUPP 等孤儿来源的评分）
+        evidence_ids = {e["source_id"] for e in filtered_evidence}
+        filtered_scores = [
+            s for s in evidence_scores
+            if s.get("reliability", 0) >= 0.4
+            and s.get("source_id", "") in evidence_ids
+        ]
 
-        # 过滤 source_index：只保留在过滤后 evidence 中出现的
+        # 过滤 source_index：只保留在过滤后 evidence 中出现的 + 所有补搜来源
         valid_ids = {e["source_id"] for e in filtered_evidence}
         filtered_source_index = [
-            si for si in state["source_index"]
-            if si.get("source_id", "") in valid_ids
+            si for si in merged_source_index
+            if si.get("source_id", "") in valid_ids or str(si.get("source_id", "")).startswith("SUPP-")
         ]
-        dropped_si = len(state["source_index"]) - len(filtered_source_index)
+        dropped_si = len(merged_source_index) - len(filtered_source_index)
         if dropped_si:
             logger.info("[analyst] source_index 同步裁剪 %d 条", dropped_si)
 
@@ -355,14 +466,18 @@ def analyst_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
     else:
         filtered_evidence = state["evidence"]
         filtered_scores = evidence_scores
-        filtered_source_index = state["source_index"]
+        filtered_source_index = merged_source_index
         insufficient = True
         if state["iteration"] < state["max_iterations"]:
             needs_more = True
 
+    if refined_queries:
+        logger.info("[analyst] 生成细化搜索词(%d): %s", len(refined_queries), " | ".join(refined_queries))
+
     return {
         "analysis": analysis,
         "needs_more_research": needs_more,
+        "refined_queries": refined_queries,
         "findings": findings,
         "evidence": filtered_evidence,
         "evidence_scores": filtered_scores,

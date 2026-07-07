@@ -20,6 +20,6 @@ class Settings(BaseSettings):
 
     # 服务
     host: str = "0.0.0.0"
-    port: int = 8765
+    port: int = 8764
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
