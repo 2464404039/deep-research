@@ -8,7 +8,10 @@ const agentSteps = document.getElementById('agentSteps');
 const welcome = document.getElementById('welcome');
 let loading = false;
 
-// ── 跨会话 threadId（localStorage 持久化，关闭浏览器回来还能继续）──
+// ── 跨会话 identity（localStorage 持久化，关闭浏览器回来还能继续）──
+const USER_ID = localStorage.getItem('research_user') || ('user-' + crypto.randomUUID());
+localStorage.setItem('research_user', USER_ID);
+
 const THREAD_ID = localStorage.getItem('research_thread') || ('web-' + Date.now());
 localStorage.setItem('research_thread', THREAD_ID);
 
@@ -142,7 +145,7 @@ function sendMessage() {
     fetch('/api/v1/research/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, user_id: 'web-user', thread_id: THREAD_ID }),
+        body: JSON.stringify({ query, user_id: USER_ID, thread_id: THREAD_ID }),
     }).then(async resp => {
         // 429 限流 → 显示友好提示
         if (resp.status === 429) {
