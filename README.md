@@ -18,24 +18,31 @@
 
 ### Agent 管线
 
+```mermaid
+flowchart TD
+    U[用户提问] --> IR{Intent Router<br>意图路由}
+
+    IR -->|"简单问答"| DA[Direct Answer<br>裸 LLM 直接回复]
+    IR -->|"深度研究"| PL[Planner<br>拆解问题维度<br>按产品版本细分<br>生成 8-10 个搜索词]
+
+    PL --> WS
+
+    subgraph LOOP["🔄 搜索-分析循环（最多 N 轮）"]
+        WS[Web Scout<br>三源搜索 → 去重<br>LLM 用 fetch_page 工具<br>选择性抓取 3-5 篇全文]
+        WS -->|"结构化证据"| AN[Analyst<br>三维度评分<br>硬过滤 &lt;0.4 的低质证据]
+
+        AN -->|"evidence 充分"| WR
+        AN -->|"❌ 证据不足<br>输出 refined_queries<br>精确指定缺什么"| WS
+    end
+
+    WR[Writer<br>撰写 Markdown 报告<br>含对比表格 + 建议]
+    DA --> OUT[回复]
+    WR --> OUT2[研究报告 + 来源可信度列表]
+
+    %% 高亮循环回路
+    linkStyle 6 stroke:#f59e0b,stroke-width:3px,color:#f59e0b
 ```
-用户 Query
-    │
-    ▼
-Intent Router ── 简单问答 ──► 直接回复
-    │
-    ▼ (深度研究)
-Planner ── 拆解问题 → 生成 6-9 个搜索词（官网优先 + 时间限定）
-    │
-    ▼
-Web Scout ── 三重搜索 → 去重 → 全文抓取 → 结构化提取
-    │
-    ▼
-Analyst ── 三维度评分 → 形成结论
-    │
-    ├── 证据充分 ──► Writer ──► 研究报告
-    └── 证据不足 ──► Web Scout（补充搜索，最多 N 轮）
-```
+
 
 ### Agent 工具一览
 
@@ -63,12 +70,12 @@ reliability = relevance × 0.4 + freshness × 0.3 + authority × 0.3
 
 | 源 | API Key | 特点 |
 |----|---------|------|
-| **博查 API** | 可选（推荐） | `freshness=Year` 时间窗口，提取 `datePublished` 元数据 |
-| **DuckDuckGo** | 免费 | `timelimit='y'` 近一年结果，无 API Key 需求 |
+| **博查 API** | 可选（推荐） | `freshness=Month` 近一月结果，Month 不足时自动 fallback Year |
+| **DuckDuckGo** | 免费 | `timelimit='m'` 近一月结果，无 API Key 需求 |
 | **DeepSeek web_search** | 自带 | LLM 级联网搜索，返回日期信息 |
 
 - 失效内容软过滤（404/下架/deprecated），时效性交由 Analyst Agent 判断
-- 前 10 条结果自动抓取全文，供 Web Scout 提取结构化证据
+- LLM 审阅搜索摘要后用 `fetch_page` 工具选择性抓取 3-5 篇全文（不再盲抓全部）
 
 
 ## 快速开始
