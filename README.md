@@ -1,154 +1,149 @@
 # 🔬 DeepResearch
 
-**轻量级多 Agent 深度研究助手** — 输入一个问题，自动调度 5 个 AI Agent 协作完成：意图路由 → 搜索规划 → 多源检索 → 证据评分 → 报告撰写。最终输出一份带可信度评分的 Markdown 研究报告。
-
-简单问题秒回，复杂问题深度研究，无需手动搜索和整理资料。
+多 Agent 协作深度研究助手 — 输入一个问题，5 个 AI Agent 自动完成意图路由 → 搜索规划 → 网络取证 → 证据评分 → 报告撰写。简单问题秒回，复杂问题输出带可信度评分的 Markdown 研究报告。
 
 ## 特性
 
-- **🤖 5 Agent 管线** — Intent Router → Planner → Web Scout → Analyst → Writer，LangGraph StateGraph 编排，证据不足自动循环补充搜索
-- **🔍 三重搜索源** — 博查 API + DuckDuckGo + DeepSeek 联网搜索并行检索，覆盖主流搜索引擎
-- **📊 证据可信度模型** — 三维度量化评分，低分证据自动丢弃
-- **📝 专业级研究报告** — 数据表格、权威性标注的深度报告
-- **⚡ SSE 流式传输** — Web 页面实时展示 Agent 执行进度（每个节点的输出都可见）
-- **🧠 跨会话记忆** — SQLite 存储对话历史 + 用户画像，LLM 自动压缩旧消息
-- **🌐 CLI + Web 双模式** — 终端交互模式 / FastAPI Web 服务，可 Docker 部署
+- **5 Agent 管线** — LangGraph StateGraph 编排，Analyst 发现证据不足时自主输出精确搜索词触发循环补搜
+- **LLM 自主调用工具** — 搜索、页面抓取、定向补搜均由 Agent 在 tool-calling 循环中自主决策，节点函数只传指令和兜底
+- **证据可信度模型** — 三维度加权评分，低分自动丢弃，证据不足时透明警告
+- **跨会话记忆** — SQLite 存储对话历史 + 用户画像，追问不重搜，长回答 LLM 压缩为要点
+- **SSE 流式传输** — 每个 Agent 的执行状态和结果实时可见
+- **频率保护** — per-IP 每小时 5 次 + 全局并发 3，本地/内网自动绕过
+- **CLI + Web + Docker** — 三模式，零前端框架依赖
 
-## 功能
-
-### Agent 管线
+## Agent 管线
 
 ```mermaid
 flowchart TD
-    U[用户提问] --> IR{Intent Router<br>意图路由}
+    U[用户提问] --> IR{Intent Router}
 
-    IR -->|"简单问答"| DA[Direct Answer<br> LLM 快速回复，不进行搜索流程]
-    IR -->|"深度研究"| PL[Planner<br>拆解问题维度<br>按产品版本细分<br>生成 8-10 个搜索词]
+    IR -->|"简单问答"| DA[Direct Answer<br>注入记忆上下文<br>LLM 回复]
+    IR -->|"深度研究"| PL[Planner<br>拆解问题 × 版本 × 维度<br>生成 8-10 个搜索词]
 
     PL --> WS
 
-    subgraph LOOP["🔄 搜索-分析循环（最多 N 轮）"]
-        WS[Web Scout<br>三源搜索 → 去重<br>LLM 用 fetch_page 工具<br>选择性抓取 3-5 篇全文]
-        WS -->|"结构化证据"| AN[Analyst<br>三维度评分<br>硬过滤 &lt;0.4 的低质证据]
+    subgraph LOOP["🔄 搜索-分析循环"]
+        WS[Web Scout<br>LLM 调用 search_tool 逐词搜索获取摘要<br>审阅摘要后调用 fetch_page_tool<br>选择性抓取 3-5 篇全文]
+        WS -->|"evidence + source_index"| AN[Analyst<br>三维度评分<br>硬过滤低分证据<br>若存在搜索缺口调用 search_supplement_tool 简单补搜<br>仍旧证据不足则循环到Web Scout细搜]
 
-        AN -->|"evidence 充分"| WR
-        AN -->|"❌ 证据不足<br>输出 refined_queries<br>精确指定缺什么"| WS
+        AN -->|"证据充分或到达最大轮次"| WR
+        AN -->|"❌ 证据不足<br>输出 refined_queries"| WS
     end
 
-    WR[Writer<br>撰写 Markdown 报告<br>含对比表格 + 建议]
+    WR[Writer<br>Markdown 报告<br>版本细分表格 + 人民币优先]
     DA --> OUT[回复]
     WR --> OUT2[研究报告 + 来源可信度列表]
 
-    %% 高亮循环回路
-    linkStyle 6 stroke:#f59e0b,stroke-width:3px,color:#f59e0b
+    linkStyle 6 stroke:#f59e0b,stroke-width:3px
 ```
 
+## 工具总览
 
-### Agent 一览
+| 工具 | 绑定 Agent | 底层实现 | 调用时机 | 返回内容 |
+|------|-----------|---------|---------|---------|
+| `search_tool` | Web Scout | `search_all([q], 4)` 三源去重 | 每个搜索词调一次；结果少时换词重搜 | 格式化摘要（编号/标题/URL/摘要/日期） |
+| `fetch_page_tool` | Web Scout | urllib 抓取 → 去标签 → 8KB 截断 | 审阅摘要后挑 3-5 篇确定相关的页面 | 网页纯文本正文 |
+| `search_supplement_tool` | Analyst | `search_all([q], 3)` 轻量搜索 | 评分时发现具体维度缺数据 | 简洁摘要（不抓全文） |
 
-| Agent | 职责 | 关键输出 |
-|-------|------|----------|
-| **Intent Router** | 判断问题复杂度，路由到简单问答或深度研究管线 | `route: "direct\|multiagent"` |
-| **Planner** | 拆解问题维度，生成带时间限定 + 官网优先的搜索策略 | `search_queries[]`（6-9 个） |
-| **Web Scout** | 三重搜索 → URL 去重 → 前 10 条全文抓取 → 结构化证据提取 | `evidence[]`, `source_index[]` |
-| **Analyst** | 三维度评分 → 硬过滤低分证据 → 判断是否需要补充搜索 | `findings[]`, `evidence_scores[]` |
-| **Writer** | 撰写带数据、表格的 Markdown 报告 | `final` |
+---
 
-
-### 证据可信度模型
+## 证据可信度模型
 
 ```
 reliability = relevance × 0.4 + freshness × 0.3 + authority × 0.3
 ```
 
-| 等级 | 阈值 | 来源特征 |
-|------|------|----------|
-| 🟢 高信度 | ≥ 0.7 | 官网 / 政府 (.gov) / 学术 (.edu) / 权威媒体 |
-| 🟡 中信度 | ≥ 0.4 | 企业网站 / 知名博客 / 行业报告 |
-| 🔴 低信度 | < 0.4 | **自动丢弃**，不足时触发补充搜索 |
+| 等级 | 阈值 | 来源示例 | 处理 |
+|------|------|----------|------|
+| 🟢 高信度 | ≥ 0.7 | 官网 / .gov / .edu / 权威媒体 | 优先采用 |
+| 🟡 中信度 | ≥ 0.4 | 企业网站 / 知名博客 / 行业报告 | 可用 |
+| 🔴 低信度 | < 0.4 | 论坛 / 个人博客 / 无法判断 | **丢弃** |
 
-### 搜索系统
+---
 
-| 源 | API Key | 特点 |
-|----|---------|------|
-| **博查 API** | 可选（推荐） | `freshness=Month` 近一月结果，Month 不足时自动 fallback Year |
-| **DuckDuckGo** | 免费 | `timelimit='m'` 近一月结果，无 API Key 需求 |
-| **DeepSeek web_search** | 自带 | LLM 级联网搜索，返回日期信息 |
+## 搜索系统
 
-- 失效内容软过滤（404/下架/deprecated），时效性交由 Analyst Agent 判断
-- LLM 审阅搜索摘要后用 `fetch_page` 工具选择性抓取 3-5 篇全文（不再盲抓全部）
+| 源 | API Key | 时效窗口 | 说明 |
+|----|---------|----------|------|
+| **博查 API** | 可选 | Month（< 3 条 fallback Year） | 主力，需申请 Key |
+| **DuckDuckGo** | 免费 | Month（`timelimit='m'`） | 零配置备用 |
+| **DeepSeek web_search** | 自带 | — | 仅前 4 词调用，省 API |
 
+---
+
+## 记忆系统
+
+SQLite 单文件 `data/memory.db`，两张表：`conversations`（对话消息）和 `user_profile`（用户画像）。
+
+### 写入
+
+1. **存消息** — user 问题 + assistant 回答全文存入 DB
+2. **提取画像** — 关键词匹配"我叫/我是/我做/我会/我毕业于/我住在"等 → 更新 user_profile.facts
+
+### 读取
+
+`build_memory_context()` 拼文本注入各 Agent 的 prompt。画像永久保留，对话取全局最新 4 轮（8 条）。用户问题原文注入，长 AI 回答（>500字）LLM 压缩为要点保留数据和结论。前端 `thread_id` 存 localStorage。
+
+### 效果
+
+用户追问"根据刚才的报告..."→ Intent Router 读到上下文 → 判 direct → 不重搜
+
+---
+
+## 频率限制
+
+纯内存计数器（`auth.py`），重启清零。本地/内网 IP 直接放行（127.*, ::1, 192.168.*, 10.*, 172.16-31.*）。外网 IP 每小时 5 次 + 全局并发 3。超限返回友好中文提示。
+
+---
 
 ## 快速开始
 
 ```bash
-# 1. 安装依赖
 pip install -r requirements.txt
-
-# 2. 配置 API Key
 cp .env.example .env
-# 编辑 .env，填入 DEEPSEEK_API_KEY（必填），BOCHA_API_KEY（可选但推荐）
+# 编辑 .env，必填 DEEPSEEK_API_KEY，可选 BOCHA_API_KEY
 
-# 3. CLI 模式（单次查询）
-python main.py --query "分析2026年AI行业就业趋势与薪资水平"
+# CLI
+python main.py --query "对比 DeepSeek、ChatGPT、Claude 最新定价"
+python main.py  # 交互模式
 
-# 4. CLI 交互模式
-python main.py
-
-# 4. Web 服务
+# Web
 python server.py
-# 浏览器打开 http://localhost:8764
+# http://localhost:8764
 ```
 
-### Docker 部署
+### Docker
 
 ```bash
-# 1. 配置
 cp .env.example .env
-# 编辑 .env，填入真实 API Key
-
 docker compose up -d
-
-# 3. 查看进度
-docker compose logs -f
-
-# 4. 停止
-docker compose down
+# http://<服务器IP>:8764
 ```
 
-浏览器打开 `http://<服务器IP>:8764`。
-
+---
 
 ## 项目结构
 
 ```
 deepresearch/
-├── .env.example           # 配置模板
-├── .gitignore
-├── .dockerignore
-├── Dockerfile             # python:3.11-slim 镜像
-├── docker-compose.yml     # 含 healthcheck + 持久化 volume
-├── requirements.txt
-├── main.py                # CLI 入口（单次查询 + 交互模式）
-├── server.py              # FastAPI Web 服务 + SSE 流式接口
-│
+├── main.py                # CLI 入口
+├── server.py              # FastAPI + SSE
+├── auth.py                # 频率限制（本地绕过）
 ├── agent/
-│   ├── config.py          # pydantic-settings 配置类
-│   ├── state.py           # ResearchState（15 个字段在节点间流转）
-│   ├── prompts.py         # 5 个 Agent 系统提示词（均要求 JSON 输出）
-│   ├── tools.py           # 搜索工具（博查/DDG/DeepSeek）+ 抓取 + 过滤
-│   ├── nodes.py           # 6 个 LangGraph 节点函数
-│   └── graph.py           # StateGraph 工作流定义 + 条件路由
-│
+│   ├── config.py          # pydantic-settings
+│   ├── state.py           # ResearchState（19 字段）
+│   ├── prompts.py         # 5 个 Agent 系统提示词
+│   ├── tools.py           # 搜索工具 + 3 个 LangChain Tool
+│   ├── nodes.py           # 6 个节点函数
+│   └── graph.py           # StateGraph + 条件路由
 ├── memory/
-│   └── store.py           # SQLite 记忆存储（对话历史 + 用户画像）
-│
+│   └── store.py           # SQLite 记忆（对话 + 画像 + 压缩）
 ├── static/
-│   ├── index.html         # 深色主题 Web 前端
-│   ├── app.js             # SSE 客户端 + Markdown 渲染 + 交互逻辑
-│   └── style.css          # 样式
-│
-└── data/                  # SQLite 数据库（自动创建，已 gitignore）
+│   ├── index.html
+│   ├── app.js
+│   └── style.css
+└── data/                  # SQLite 数据库（gitignore）
 ```
 
 ## 环境变量
@@ -157,40 +152,14 @@ deepresearch/
 |------|------|--------|------|
 | `DEEPSEEK_API_KEY` | ✅ | — | DeepSeek API Key |
 | `DEEPSEEK_BASE_URL` | — | `https://api.deepseek.com/v1` | API 地址 |
-| `MODEL` | — | `deepseek-chat` | LLM 模型名 |
-| `BOCHA_API_KEY` | — | 空 | 博查搜索 API Key（不填仅用 DDG + DeepSeek） |
-| `MAX_ITERATIONS` | — | `2` | 搜索-分析最大循环次数 |
-| `ENABLE_MEMORY` | — | `true` | 跨会话记忆开关 |
-| `DB_PATH` | — | `data/memory.db` | SQLite 数据库路径 |
-| `HOST` | — | `0.0.0.0` | 服务监听地址 |
-| `PORT` | — | `8764` | 服务端口 |
-
-## API 接口
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/research/stream` | **SSE 流式研究** — `{query, user_id?, thread_id?}` |
-| GET | `/` | 返回前端页面 |
-| GET | `/health` | 健康检查 `{"status":"ok"}` |
-| GET | `/docs` | FastAPI Swagger 文档 |
-
-### 流式接口示例
-
-```bash
-curl -X POST http://localhost:8764/api/v1/research/stream \
-  -H "Content-Type: application/json" \
-  -d '{"query":"对比 Python 和 Go 后端开发差异"}' \
-  --no-buffer
-```
+| `MODEL` | — | `deepseek-chat` | 模型名 |
+| `BOCHA_API_KEY` | — | 空 | 博查搜索 Key |
+| `MAX_ITERATIONS` | — | `2` | 搜索-分析循环上限 |
+| `ENABLE_MEMORY` | — | `true` | 记忆开关 |
+| `HOST` / `PORT` | — | `0.0.0.0` / `8764` | 监听 |
+| `RATE_LIMIT_PER_HOUR` | — | `5` | 每 IP 每小时上限 |
+| `RATE_LIMIT_CONCURRENCY` | — | `3` | 全局并发上限 |
 
 ## 技术栈
 
-| 层 | 技术 |
-|----|------|
-| **编排** | LangGraph StateGraph（5agent + 6 节点 + 条件路由） |
-| **LLM** | DeepSeek Chat API（可切换为任意 OpenAI 兼容 API） |
-| **搜索** | 博查 API + DuckDuckGo + DeepSeek web_search |
-| **存储** | SQLite（LangGraph Checkpoint + 对话记忆） |
-| **Web** | FastAPI + SSE 流式传输 |
-| **前端** | 原生 HTML/CSS/JS（零框架依赖）
-
+LangGraph / LangChain / DeepSeek Chat API / FastAPI + SSE / DuckDuckGo Search / SQLite / 原生 HTML/CSS/JS

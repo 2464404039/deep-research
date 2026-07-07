@@ -84,62 +84,6 @@ class MemoryStore:
         except Exception:
             return 0
 
-    # ── 对话压缩 ──────────────────────────────────────────────
-
-    def compress_conversation(self, user_id: str, thread_id: str, summary_llm=None) -> str | None:
-        """压缩旧消息：保留最近10条，旧消息用LLM（如果提供）或规则压缩为摘要"""
-        total = self.count_messages(user_id, thread_id)
-        if total <= 20:
-            return None  # 不需要压缩
-
-        # 取旧消息（跳过最近10条）
-        try:
-            with self._get_conn() as conn:
-                old_rows = conn.execute(
-                    "SELECT role, content FROM conversations "
-                    "WHERE user_id=? AND thread_id=? "
-                    "ORDER BY created_at ASC LIMIT ?",
-                    (user_id, thread_id, total - 10),
-                ).fetchall()
-        except Exception:
-            return None
-
-        if not old_rows:
-            return None
-
-        old_text = "\n".join(f"{r}: {c[:200]}" for r, c in old_rows)
-
-        if summary_llm:
-            try:
-                from langchain_core.messages import HumanMessage
-
-                resp = summary_llm.invoke([
-                    HumanMessage(content=f"将以下对话历史压缩为一段话（不超过200字），保留关键事实和用户偏好：\n\n{old_text}")
-                ])
-                summary = resp.content.strip()
-            except Exception:
-                summary = _rule_compress(old_rows)
-        else:
-            summary = _rule_compress(old_rows)
-
-        # 删除旧消息，只保留最近10条
-        try:
-            with self._get_conn() as conn:
-                conn.execute(
-                    "DELETE FROM conversations WHERE id IN ("
-                    "SELECT id FROM conversations WHERE user_id=? AND thread_id=? "
-                    "ORDER BY created_at ASC LIMIT ?"
-                    ")",
-                    (user_id, thread_id, total - 10),
-                )
-        except Exception:
-            pass
-
-        # 在对话中插入一条摘要消息
-        self.add_message(user_id, thread_id, "system", f"[对话摘要] {summary}")
-        logger.info("对话压缩完成: 旧消息=%d → 摘要(%d字)", len(old_rows), len(summary))
-        return summary
-
     # ── 用户画像 ──────────────────────────────────────────────
 
     def get_or_create_profile(self, user_id: str) -> dict:
@@ -181,8 +125,24 @@ class MemoryStore:
 
     # ── 记忆上下文构建 ────────────────────────────────────────
 
-    def build_memory_context(self, user_id: str, thread_id: str, query: str) -> str:
-        """构建注入 LLM prompt 的记忆上下文文本"""
+    def get_recent_messages_global(self, user_id: str, limit: int = 6) -> list[dict]:
+        """获取用户所有 thread 中的最近消息（跨会话记忆）"""
+        try:
+            with self._get_conn() as conn:
+                rows = conn.execute(
+                    "SELECT role, content FROM conversations "
+                    "WHERE user_id=? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (user_id, limit),
+                ).fetchall()
+            return [{"role": r, "content": c} for r, c in reversed(rows)]
+        except Exception as exc:
+            logger.warning("读取全局消息失败: %s", exc)
+            return []
+
+    def build_memory_context(self, user_id: str, thread_id: str, query: str,
+                             llm=None) -> str:
+        """构建注入 LLM prompt 的记忆上下文文本。如果提供 llm，长回答会被压缩为要点。"""
         parts = []
 
         # 1. 用户画像
@@ -197,16 +157,31 @@ class MemoryStore:
                 lines.append(f"用户偏好：{json.dumps(prefs, ensure_ascii=False)}")
             parts.append("\n".join(lines))
 
-        # 2. 最近对话
-        recent = self.get_recent_messages(user_id, thread_id, limit=6)
+        # 2. 最近对话（跨 thread 查询，全文注入，长回答 LLM 压缩）
+        recent = self.get_recent_messages_global(user_id, limit=8)
         if recent:
             lines = ["最近对话："]
             for msg in recent:
                 role_label = "用户" if msg["role"] == "user" else "AI"
-                lines.append(f"{role_label}: {msg['content'][:300]}")
+                content = msg['content']
+                # 超过 500 字的长回答用 LLM 压缩为要点，用户问题原文保留
+                if role_label == "AI" and len(content) > 500 and llm:
+                    content = self._compress_content(content, llm)
+                lines.append(f"{role_label}: {content}")
             parts.append("\n".join(lines))
 
         return "\n\n".join(parts) if parts else ""
+
+    def _compress_content(self, text: str, llm) -> str:
+        """用 LLM 将长文压缩为要点，保留关键数据、数字和结论"""
+        try:
+            from langchain_core.messages import HumanMessage
+            resp = llm.invoke([HumanMessage(content=
+                f"将以下内容压缩为一段话（不超过300字），保留所有具体数字、价格、日期、版本号和核心结论：\n\n{text}"
+            )])
+            return resp.content.strip()
+        except Exception:
+            return text[:500]  # LLM 压缩失败 → 退到截断
 
     # ── 持久化一轮对话 ────────────────────────────────────────
 
@@ -236,14 +211,4 @@ class MemoryStore:
         if facts != profile.get("facts", {}):
             self.update_profile(user_id, {"facts": facts})
 
-        # 压缩检查
-        self.compress_conversation(user_id, thread_id)
 
-
-def _rule_compress(messages: list[tuple]) -> str:
-    """规则压缩：提取关键主题"""
-    topics = set()
-    for _, content in messages:
-        if len(content) > 5:
-            topics.add(content[:50])
-    return "对话涉及主题: " + "；".join(list(topics)[:5])

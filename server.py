@@ -206,7 +206,7 @@ async def research_stream(request: Request):
                 # 记忆上下文
                 memory_context = ""
                 if _memory:
-                    memory_context = _memory.build_memory_context(user_id, thread_id, query)
+                    memory_context = _memory.build_memory_context(user_id, thread_id, query, llm=_llm)
 
                 state = create_initial_state(
                     query=query,

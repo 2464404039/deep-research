@@ -102,7 +102,7 @@ def run():
         """执行一次查询，带记忆上下文"""
         memory_context = ""
         if memory:
-            memory_context = memory.build_memory_context(args.user, thread_id, query)
+            memory_context = memory.build_memory_context(args.user, thread_id, query, llm=llm)
 
         state = create_initial_state(
             query=query,
