@@ -52,7 +52,7 @@ flowchart TD
 | **Planner** | 拆解问题维度，生成带时间限定 + 官网优先的搜索策略 | `search_queries[]`（6-9 个） |
 | **Web Scout** | 三重搜索 → URL 去重 → 前 10 条全文抓取 → 结构化证据提取 | `evidence[]`, `source_index[]` |
 | **Analyst** | 三维度评分 → 硬过滤低分证据 → 判断是否需要补充搜索 | `findings[]`, `evidence_scores[]` |
-|| **Writer** | 撰写带数据、表格的 Markdown 报告 | `final` |
+| **Writer** | 撰写带数据、表格的 Markdown 报告 | `final` |
 
 ### 证据可信度模型
 
