@@ -1,4 +1,4 @@
-"""轻量并发 + 频率限制 —— 内存计数器，零依赖重启清零"""
+"""轻量并发 + 频率限制 —— 按用户限流，内存计数器"""
 import time
 import threading
 import logging
@@ -8,7 +8,7 @@ logger = logging.getLogger("deepresearch.auth")
 
 
 class RateLimiter:
-    """IP 级别频率限制 + 全局并发限制。本地/内网 IP 自动绕过。"""
+    """按 user_id 频率限制 + 全局并发限制。本地/内网 IP 自动绕过（仅作 fallback）。"""
 
     _LOCAL_NETS = (
         "127.", "::1", "localhost",
@@ -19,38 +19,41 @@ class RateLimiter:
         "172.28.", "172.29.", "172.30.", "172.31.",
     )
 
-    def __init__(self, per_ip_limit: int = 5, per_ip_window: int = 3600,
+    def __init__(self, per_user_limit: int = 4, per_user_window: int = 3600,
                  global_concurrency: int = 3):
-        self.per_ip_limit = per_ip_limit
-        self.per_ip_window = per_ip_window      # 秒
+        self.per_user_limit = per_user_limit
+        self.per_user_window = per_user_window   # 秒
         self.global_concurrency = global_concurrency
 
-        self._ip_requests: dict[str, list[float]] = defaultdict(list)
+        self._user_requests: dict[str, list[float]] = defaultdict(list)
         self._active_count = 0
         self._lock = threading.Lock()
 
-    def _prune(self, ip: str, now: float) -> None:
+    def _prune(self, key: str, now: float) -> None:
         """清理过期记录"""
-        window_start = now - self.per_ip_window
-        self._ip_requests[ip] = [
-            t for t in self._ip_requests[ip] if t > window_start
+        window_start = now - self.per_user_window
+        self._user_requests[key] = [
+            t for t in self._user_requests[key] if t > window_start
         ]
-        if not self._ip_requests[ip]:
-            del self._ip_requests[ip]
+        if not self._user_requests[key]:
+            del self._user_requests[key]
 
     def _is_local(self, ip: str) -> bool:
-        """本地/内网 IP 绕过频率限制"""
         for prefix in self._LOCAL_NETS:
             if ip.startswith(prefix):
                 return True
         return False
 
-    def acquire(self, ip: str) -> str | None:
-        """尝试获取执行许可。返回 None 表示通过，返回字符串表示拒绝原因"""
-        # 本地/内网访问不做限制
-        if self._is_local(ip):
+    def acquire(self, user_id: str, ip: str = "") -> str | None:
+        """尝试获取执行许可。
+        按 user_id 限流，user_id 缺失时 fallback 到 IP。
+        返回 None 表示通过，返回字符串表示拒绝原因。
+        """
+        # 本地/内网跳过限流
+        if ip and self._is_local(ip):
             return None
 
+        key = user_id or ip or "unknown"
         now = time.time()
 
         with self._lock:
@@ -58,14 +61,14 @@ class RateLimiter:
             if self._active_count >= self.global_concurrency:
                 return "当前使用人数较多，请稍后再试"
 
-            # 第2层：单 IP 频率
-            self._prune(ip, now)
-            if len(self._ip_requests[ip]) >= self.per_ip_limit:
-                return f"每小时最多 {self.per_ip_limit} 次深度研究，请稍后再试"
+            # 第2层：按用户频率
+            self._prune(key, now)
+            if len(self._user_requests[key]) >= self.per_user_limit:
+                return f"每小时最多 {self.per_user_limit} 次深度研究，请稍后再试"
 
-            # 通过 → 计数
+            # 通过
             self._active_count += 1
-            self._ip_requests[ip].append(now)
+            self._user_requests[key].append(now)
 
         return None
 
@@ -79,17 +82,17 @@ class RateLimiter:
         """查看当前状态"""
         with self._lock:
             now = time.time()
-            active_ips = 0
-            for ip in list(self._ip_requests.keys()):
-                self._prune(ip, now)
-                if ip in self._ip_requests:
-                    active_ips += 1
+            active_users = 0
+            for key in list(self._user_requests.keys()):
+                self._prune(key, now)
+                if key in self._user_requests:
+                    active_users += 1
             return {
                 "active_requests": self._active_count,
-                "active_ips": active_ips,
+                "active_users": active_users,
                 "max_concurrency": self.global_concurrency,
-                "per_ip_limit": self.per_ip_limit,
-                "window_minutes": self.per_ip_window // 60,
+                "per_user_limit": self.per_user_limit,
+                "window_minutes": self.per_user_window // 60,
             }
 
 
@@ -101,8 +104,8 @@ def get_limiter() -> RateLimiter:
     global _limiter
     if _limiter is None:
         import os
-        limit = int(os.getenv("RATE_LIMIT_PER_HOUR", "3"))
+        limit = int(os.getenv("RATE_LIMIT_PER_HOUR", "4"))
         concurrency = int(os.getenv("RATE_LIMIT_CONCURRENCY", "3"))
-        _limiter = RateLimiter(per_ip_limit=limit, global_concurrency=concurrency)
-        logger.info("频率限制: %d次/小时/IP, 全局并发 %d", limit, concurrency)
+        _limiter = RateLimiter(per_user_limit=limit, global_concurrency=concurrency)
+        logger.info("频率限制: %d次/小时/用户, 全局并发 %d", limit, concurrency)
     return _limiter

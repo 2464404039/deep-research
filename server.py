@@ -190,7 +190,7 @@ async def research_stream(request: Request):
     if forwarded:
         client_ip = forwarded.split(",")[0].strip()
     limiter = get_limiter()
-    deny_reason = limiter.acquire(client_ip)
+    deny_reason = limiter.acquire(user_id, ip=client_ip)
     if deny_reason:
         return JSONResponse({"error": deny_reason}, status_code=429)
 
