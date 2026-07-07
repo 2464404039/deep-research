@@ -1,19 +1,17 @@
-# ── DeepResearch Docker Compose（生产部署）─────
-# 使用: docker compose up -d --build
-# 先运行 deploy/setup.sh 一键完成域名 + SSL 配置
+# ── DeepResearch Docker Compose ─────────────────
+version: "3.9"
 
 services:
-  # ── 核心研究服务 ──────────────────────────
   deepresearch:
     build: .
     container_name: deepresearch
     restart: unless-stopped
-    expose:
-      - "8764"                 # 仅内部暴露，通过 nginx 对外
+    ports:
+      - "8764:8764"
     env_file:
       - .env
     volumes:
-      - data_volume:/app/data  # SQLite 数据库持久化
+      - ./data:/app/data
     environment:
       - HOST=0.0.0.0
       - PORT=8764
@@ -22,47 +20,8 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-
-  # ── Nginx 反向代理 ───────────────────────
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: deepresearch-nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./static:/app/static:ro
-      - certbot_www:/var/www/certbot
-      - certbot_conf:/etc/letsencrypt
-    depends_on:
-      deepresearch:
-        condition: service_healthy
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # ── SSL 证书自动续签 ────────────────────
-  certbot:
-    image: certbot/certbot
-    container_name: deepresearch-certbot
-    volumes:
-      - certbot_www:/var/www/certbot
-      - certbot_conf:/etc/letsencrypt
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h; done'"
-    depends_on:
-      - nginx
-
-volumes:
-  data_volume:     # DeepResearch SQLite 数据
-  certbot_www:    # Let's Encrypt 验证文件
-  certbot_conf:   # SSL 证书文件
