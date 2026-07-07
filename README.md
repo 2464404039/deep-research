@@ -1,4 +1,4 @@
-# 🔬 DeepResearch Lite
+# 🔬 DeepResearch
 
 **轻量级多 Agent 深度研究助手** — 输入一个问题，自动调度 5 个 AI Agent 协作完成：意图路由 → 搜索规划 → 多源检索 → 证据评分 → 报告撰写。最终输出一份带可信度评分的 Markdown 研究报告。
 
