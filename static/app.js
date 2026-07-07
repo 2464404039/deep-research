@@ -9,7 +9,15 @@ const welcome = document.getElementById('welcome');
 let loading = false;
 
 // ── 跨会话 identity（localStorage 持久化，关闭浏览器回来还能继续）──
-const USER_ID = localStorage.getItem('research_user') || ('user-' + crypto.randomUUID());
+function _genId() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    // fallback: HTTP / 旧浏览器兼容
+    return 'xxxx-xxxx-4xxx-yxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+const USER_ID = localStorage.getItem('research_user') || ('user-' + _genId());
 localStorage.setItem('research_user', USER_ID);
 
 const THREAD_ID = localStorage.getItem('research_thread') || ('web-' + Date.now());
