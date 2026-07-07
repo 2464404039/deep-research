@@ -22,7 +22,7 @@
 flowchart TD
     U[用户提问] --> IR{Intent Router<br>意图路由}
 
-    IR -->|"简单问答"| DA[Direct Answer<br>裸 LLM 直接回复]
+    IR -->|"简单问答"| DA[Direct Answer<br> LLM 快速回复，不进行搜索流程]
     IR -->|"深度研究"| PL[Planner<br>拆解问题维度<br>按产品版本细分<br>生成 8-10 个搜索词]
 
     PL --> WS
