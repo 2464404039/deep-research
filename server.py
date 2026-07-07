@@ -1,4 +1,8 @@
 """DeepResearch —— FastAPI Web 服务 + SSE 流式输出"""
+import warnings
+warnings.filterwarnings("ignore", message=".*urllib3.*")
+warnings.filterwarnings("ignore", message=".*allowed_objects.*")
+
 import asyncio
 import logging
 import sys
@@ -27,7 +31,7 @@ from agent.config import Settings
 from agent.graph import AgentBundle, build_graph
 from agent.prompts import PROMPTS
 from agent.state import create_initial_state
-from agent.tools import fetch_page_tool, search_supplement_tool
+from agent.tools import fetch_page_tool, search_supplement_tool, search_tool
 from memory.store import MemoryStore
 
 logging.basicConfig(
@@ -58,7 +62,7 @@ def _make_llm(temp: float = 0.0) -> ChatOpenAI:
 _agents = AgentBundle(
     intent_router=create_agent(_llm, tools=[], system_prompt=PROMPTS["intent_router"]),
     planner=create_agent(_make_llm(0.3), tools=[], system_prompt=PROMPTS["planner"]),
-    web_scout=create_agent(_make_llm(0.4), tools=[fetch_page_tool], system_prompt=PROMPTS["web_scout"]),
+    web_scout=create_agent(_make_llm(0.4), tools=[search_tool, fetch_page_tool], system_prompt=PROMPTS["web_scout"]),
     analyst=create_agent(_make_llm(0.3), tools=[search_supplement_tool], system_prompt=PROMPTS["analyst"]),
     writer=create_agent(_make_llm(0.4), tools=[], system_prompt=PROMPTS["writer"]),
     direct_llm=_make_llm(0.3),
@@ -278,8 +282,22 @@ async def research_stream(request: Request):
                                 "detail": f"分析师给出 {evt_data['refined_count']} 个新搜索方向",
                             })
 
-                        # writer/direct_answer 完成后立即发 final 事件，不等 graph.invoke
-                        if node_name in ("writer", "direct_answer") and not final_emitted:
+                        # writer/direct_answer 完成后立即发 final 事件
+                        if node_name == "direct_answer" and not final_emitted:
+                            final_emitted = True
+                            final_text = accumulated.get("final", "")
+                            emit({
+                                "type": "final",
+                                "query": query,
+                                "final": final_text,
+                                "source_index": [],
+                                "evidence": [],
+                                "evidence_scores": [],
+                                "quality": "simple",
+                                "quality_detail": "简单问答",
+                            })
+
+                        if node_name == "writer" and not final_emitted:
                             final_emitted = True
                             final_text = accumulated.get("final", "")
                             source_index = accumulated.get("source_index", [])

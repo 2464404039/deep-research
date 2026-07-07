@@ -8,9 +8,18 @@ logger = logging.getLogger("deepresearch.auth")
 
 
 class RateLimiter:
-    """IP 级别频率限制 + 全局并发限制"""
+    """IP 级别频率限制 + 全局并发限制。本地/内网 IP 自动绕过。"""
 
-    def __init__(self, per_ip_limit: int = 3, per_ip_window: int = 3600,
+    _LOCAL_NETS = (
+        "127.", "::1", "localhost",
+        "192.168.", "10.",
+        "172.16.", "172.17.", "172.18.", "172.19.",
+        "172.20.", "172.21.", "172.22.", "172.23.",
+        "172.24.", "172.25.", "172.26.", "172.27.",
+        "172.28.", "172.29.", "172.30.", "172.31.",
+    )
+
+    def __init__(self, per_ip_limit: int = 5, per_ip_window: int = 3600,
                  global_concurrency: int = 3):
         self.per_ip_limit = per_ip_limit
         self.per_ip_window = per_ip_window      # 秒
@@ -29,8 +38,19 @@ class RateLimiter:
         if not self._ip_requests[ip]:
             del self._ip_requests[ip]
 
+    def _is_local(self, ip: str) -> bool:
+        """本地/内网 IP 绕过频率限制"""
+        for prefix in self._LOCAL_NETS:
+            if ip.startswith(prefix):
+                return True
+        return False
+
     def acquire(self, ip: str) -> str | None:
         """尝试获取执行许可。返回 None 表示通过，返回字符串表示拒绝原因"""
+        # 本地/内网访问不做限制
+        if self._is_local(ip):
+            return None
+
         now = time.time()
 
         with self._lock:

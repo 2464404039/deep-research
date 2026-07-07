@@ -236,10 +236,9 @@ def plan_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
 
 
 def web_scout_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
-    """网络搜索：批量搜索 → 去重 → 摘要给 LLM → LLM 用 fetch_page 工具自主抓取 → 提取证据"""
+    """网络搜索：LLM 用 search_tool 自主搜索 + fetch_page_tool 选择性抓取 → 提取证据"""
     from .tools import search_all, filter_defunct, enrich_records_with_content
 
-    # 优先使用 analyst 生成的细化搜索词（针对性补搜），否则用规划器的原始搜索词
     refined = state.get("refined_queries", [])
     if refined:
         queries = refined
@@ -247,46 +246,16 @@ def web_scout_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
     else:
         queries = state["search_queries"]
     next_iteration = state["iteration"] + 1
-    raw_records = search_all(queries)
     today = datetime.now().strftime("%Y年%m月%d日")
-    raw_records = filter_defunct(raw_records)
 
-    if not raw_records:
-        logger.info("[web_scout] 无搜索结果")
-        return {
-            "search_results": "（无搜索结果）",
-            "evidence": [],
-            "source_index": [],
-            "messages": [],
-            "iteration": next_iteration,
-        }
-
-    # 统计搜索源分布
-    sources = {}
-    for rec in raw_records:
-        s = rec.get("source", "unknown")
-        sources[s] = sources.get(s, 0) + 1
-    logger.info("[web_scout] 搜索源分布: %s，共 %d 条", dict(sources), len(raw_records))
-
-    # ── 构建摘要 prompt（不含全文，让 LLM 用 fetch_page 工具自主选择）──
-    lines = ["以下是搜索到的网页记录（仅摘要）。你可以使用 fetch_page 工具获取任意 URL 的完整正文："]
-    for rec in raw_records:
-        pub_date = rec.get("date", "")
-        date_info = f"发布日期: {pub_date}" if pub_date else "发布日期: 未知"
-        lines.append(
-            f"source_id: {rec['source_id']}\n"
-            f"title: {rec['title']}\n"
-            f"url: {rec['url']}\n"
-            f"domain: {rec.get('domain', '')}\n"
-            f"{date_info}\n"
-            f"摘要: {rec['snippet'][:400]}\n"
-            f"---"
-        )
-    raw_text = "\n".join(lines)
-
+    # ── 让 LLM 用 search_tool 自主搜索 ──
+    query_list = "\n".join(f"  - {q}" for q in queries)
     human = HumanMessage(
-        content=f"当前日期：{today}\n\n用户问题：{state['query']}\n\n{raw_text}\n\n"
-                f"请先根据摘要判断哪些页面最相关，然后用 fetch_page 工具只抓取 3-5 篇最关键的页面全文来提炼证据。"
+        content=f"当前日期：{today}\n\n"
+                f"用户问题：{state['query']}\n\n"
+                f"你需要逐一用 search_tool 搜索以下词：\n{query_list}\n\n"
+                f"每个搜索词调用一次 search_tool。浏览所有结果后，用 fetch_page_tool "
+                f"抓取 3-5 篇最相关的页面全文，再提炼证据。"
     )
 
     try:
@@ -298,41 +267,43 @@ def web_scout_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
         evidence = []
         source_index = []
 
-    # ── Fallback: 检查 LLM 是否调用了 fetch_page ──
-    tool_messages = [
-        m for m in result.get("messages", [])
-        if hasattr(m, "tool_calls") and m.tool_calls
-    ]
-    fetch_calls = [
-        tc for msg in tool_messages
-        for tc in (msg.tool_calls if isinstance(msg.tool_calls, list) else [])
-        if tc.get("name") == "fetch_page_tool"
-    ]
-    logger.info("[web_scout] LLM fetch_page 调用: %d 次", len(fetch_calls))
+    # ── 检查 LLM 工具调用情况 ──
+    search_calls = 0
+    fetch_calls = 0
+    for msg in result.get("messages", []):
+        if hasattr(msg, "tool_calls") and isinstance(msg.tool_calls, list):
+            for tc in msg.tool_calls:
+                name = tc.get("name", "")
+                if name == "search_tool":
+                    search_calls += 1
+                elif name == "fetch_page_tool":
+                    fetch_calls += 1
+    logger.info("[web_scout] LLM 调用: search=%d fetch=%d", search_calls, fetch_calls)
 
-    # Fallback 1: LLM 一次都没调 fetch_page → Python 盲抓前 5 条
-    if not fetch_calls and not evidence:
-        logger.info("[web_scout] LLM 未调用 fetch_page，fallback 抓取前5条")
-        raw_records = enrich_records_with_content(raw_records, max_fetch=5)
-        for rec in raw_records[:8]:
-            content = rec.get("full_content", "") or rec.get("snippet", "")
-            evidence.append({
-                "source_id": rec["source_id"],
-                "title": rec["title"],
-                "url": rec["url"],
-                "snippet": content[:400],
-                "domain": rec.get("domain", ""),
-                "date": rec.get("date", ""),
-            })
-
-    # Fallback 2: LLM 调了 fetch_page 但没产出 evidence → 从 tool results 拼
-    if fetch_calls and not evidence:
-        logger.info("[web_scout] LLM fetch_page 成功但未产出JSON，从 tool results fallback")
+    # ── Fallback: LLM 完全不调工具 → 硬编码搜 + 抓 ──
+    if search_calls == 0 and not evidence:
+        logger.info("[web_scout] LLM 未调用工具，fallback 硬编码搜索")
+        raw_records = search_all(queries)
+        raw_records = filter_defunct(raw_records)
+        if raw_records:
+            raw_records = enrich_records_with_content(raw_records, max_fetch=5)
+            for rec in raw_records[:8]:
+                content = rec.get("full_content", "") or rec.get("snippet", "")
+                evidence.append({
+                    "source_id": rec["source_id"],
+                    "title": rec["title"],
+                    "url": rec["url"],
+                    "snippet": content[:400],
+                    "domain": rec.get("domain", ""),
+                    "date": rec.get("date", ""),
+                })
+    elif not evidence:
+        # LLM 调了工具但没产出 JSON → 从 tool results 拼
+        logger.info("[web_scout] LLM 调了工具但未产出JSON，从 tool results fallback")
         for msg in result.get("messages", []):
             if hasattr(msg, "type") and msg.type == "tool" and hasattr(msg, "content"):
                 content = str(msg.content)
-                if content and len(content) > 50:
-                    # 尝试从 tool result 中提取 URL
+                if "fetch_page_tool" in str(getattr(msg, "name", "")) or "页面抓取成功" in content:
                     url_match = re.search(r'https?://[^\s\n]{10,}', content[:200])
                     fallback_url = url_match.group(0) if url_match else ""
                     evidence.append({
@@ -349,7 +320,7 @@ def web_scout_node(state: ResearchState, agent: Any, agent_name: str) -> dict:
 
     logger.info("[web_scout] 证据(%d) 源(%d)", len(evidence), len(source_index))
     return {
-        "search_results": raw_text,
+        "search_results": f"LLM 执行搜索: search={search_calls} fetch={fetch_calls}",
         "evidence": evidence,
         "source_index": source_index,
         "messages": [human],

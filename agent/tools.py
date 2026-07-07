@@ -345,3 +345,25 @@ def search_supplement_tool(query: str) -> str:
             f"  摘要: {r['snippet'][:250]}\n"
         )
     return "\n".join(lines)
+
+
+@lc_tool
+def search_tool(query: str) -> str:
+    """执行网络搜索。输入一个搜索词，返回去重后的搜索结果（标题、URL、摘要、发布日期、来源编号）。
+    你应该先为每个搜索方向调用此工具获取结果摘要，再对最相关的页面调用 fetch_page_tool 获取全文。
+
+    Args:
+        query: 单个搜索查询词，如 "DeepSeek V4 Pro API 定价 2026年7月"
+    """
+    results = search_all([query], count_per=4)
+    if not results:
+        return f"未找到与 '{query}' 相关的搜索结果。"
+    lines = [f"## 搜索结果：「{query}」({len(results)} 条)\n"]
+    for r in results:
+        date_str = f"  |  日期: {r['date']}" if r.get('date') else ""
+        lines.append(
+            f"[{r['source_id']}] **{r['title']}**{date_str}\n"
+            f"  URL: {r['url']}\n"
+            f"  摘要: {r['snippet'][:300]}\n"
+        )
+    return "\n".join(lines)

@@ -1,4 +1,8 @@
 """DeepResearch —— CLI 入口"""
+import warnings
+warnings.filterwarnings("ignore", message=".*urllib3.*")
+warnings.filterwarnings("ignore", message=".*allowed_objects.*")
+
 import argparse
 import logging
 import sys
@@ -23,7 +27,7 @@ from agent.config import Settings
 from agent.graph import AgentBundle, build_graph
 from agent.prompts import PROMPTS
 from agent.state import create_initial_state
-from agent.tools import fetch_page_tool, search_supplement_tool
+from agent.tools import fetch_page_tool, search_supplement_tool, search_tool
 from memory.store import MemoryStore
 
 logging.basicConfig(
@@ -55,7 +59,7 @@ def run():
         web_scout=create_agent(
             ChatOpenAI(model=settings.model, api_key=settings.deepseek_api_key,
                        base_url=settings.deepseek_base_url, temperature=0.4),
-            tools=[fetch_page_tool], system_prompt=PROMPTS["web_scout"]
+            tools=[search_tool, fetch_page_tool], system_prompt=PROMPTS["web_scout"]
         ),
         analyst=create_agent(
             ChatOpenAI(model=settings.model, api_key=settings.deepseek_api_key,

@@ -143,6 +143,17 @@ function sendMessage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, user_id: 'web-user', thread_id: THREAD_ID }),
     }).then(async resp => {
+        // 429 限流 → 显示友好提示
+        if (resp.status === 429) {
+            loadingEl.remove();
+            const errBody = await resp.json().catch(() => ({}));
+            const errMsg = errBody.error || '请求过于频繁，请稍后再试';
+            aiContent.innerHTML = '<div class="rate-limit-hint">⏳ ' + escapeHtml(errMsg) + '</div>';
+            loading = false;
+            sendBtn.disabled = false;
+            inputEl.focus();
+            return;
+        }
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -188,8 +199,8 @@ function sendMessage() {
                         // 移除 loading
                         loadingEl.remove();
 
-                        // 低质量警告条
-                        if (quality === 'low') {
+                        // 低质量警告条（仅深度研究且证据不足时展示，简单问答跳过）
+                        if (quality === 'low' && evidenceScores.length > 0) {
                             const warn = document.createElement('div');
                             warn.className = 'quality-warn';
                             warn.innerHTML = '⚠️ 本次研究未找到足够的高可信度来源（' + escapeHtml(qualityDetail) + '），以下结论仅供参考，建议核实关键数据。';
@@ -218,13 +229,21 @@ function sendMessage() {
                         // 工作流完成标记
                         const highCount = evidenceScores.filter(s => s.reliability >= 0.7).length;
                         const totalEvidence = evidenceScores.length || sourceIndex.length;
-                        const qualityLabel = { high: '🟢', medium: '🟡', low: '🔴' }[quality] || '';
-                        addWorkflowEntry(workflowLog, {
-                            node: 'done',
-                            icon: quality === 'low' ? '⚠️' : '✅',
-                            message: quality === 'low' ? '研究完成（证据不足）' : '研究完成',
-                            detail: `${qualityLabel} ${qualityDetail} · ${finalContent.length} 字`
-                        });
+                        if (quality === 'simple') {
+                            addWorkflowEntry(workflowLog, {
+                                node: 'done',
+                                icon: '💬',
+                                message: '回复完成',
+                            });
+                        } else {
+                            const qualityLabel = { high: '🟢', medium: '🟡', low: '🔴' }[quality] || '';
+                            addWorkflowEntry(workflowLog, {
+                                node: 'done',
+                                icon: quality === 'low' ? '⚠️' : '✅',
+                                message: quality === 'low' ? '研究完成（证据不足）' : '研究完成',
+                                detail: `${qualityLabel} ${qualityDetail} · ${finalContent.length} 字`
+                            });
+                        }
                     } else if (evt.type === 'error') {
                         loadingEl.remove();
                         aiContent.innerHTML = '<p style="color:var(--red)">❌ 错误: ' + escapeHtml(evt.message) + '</p>';

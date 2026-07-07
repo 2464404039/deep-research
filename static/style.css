@@ -243,6 +243,15 @@ body {
 .msg-content pre code { background: none; padding: 0; color: inherit; border: none; }
 .msg-content a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; font-weight: 500; }
 .msg-content a:hover { color: var(--accent2); }
+/* Rate limit hint */
+.rate-limit-hint {
+    text-align: center;
+    padding: 24px 16px;
+    color: var(--text2);
+    font-size: 14px;
+    line-height: 1.6;
+}
+
 /* Quality warning banner */
 .quality-warn {
     background: #fef3c7;
